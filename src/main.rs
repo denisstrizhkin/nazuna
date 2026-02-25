@@ -1,10 +1,12 @@
+#![allow(clippy::missing_errors_doc, clippy::missing_panics_doc)]
 use anyhow::{Context, Result, anyhow};
 use clap::{Parser, Subcommand};
 use ipnet::Ipv4Net;
 use serde::{Deserialize, Serialize};
 use std::{
+    fmt::Write as _,
     fs,
-    io::Write,
+    io::Write as _,
     net::Ipv4Addr,
     process::{Command, Stdio},
 };
@@ -48,23 +50,23 @@ impl Config {
             return Ok(Config::default());
         }
         let data = fs::read_to_string(DATA_PATH)
-            .with_context(|| format!("Failed to read database file {}", DATA_PATH))?;
+            .with_context(|| format!("Failed to read database file {DATA_PATH}"))?;
         serde_json::from_str(&data)
-            .with_context(|| format!("Failed to parse database JSON from {}", DATA_PATH))
+            .with_context(|| format!("Failed to parse database JSON from {DATA_PATH}"))
     }
 
     fn save(&self) -> Result<()> {
         let data =
             serde_json::to_string_pretty(self).context("Failed to serialize database to JSON")?;
         fs::write(DATA_PATH, data)
-            .with_context(|| format!("Failed to write database file to {}", DATA_PATH))
+            .with_context(|| format!("Failed to write database file to {DATA_PATH}"))
     }
 
-    fn find_available_ip(&self, net: &Ipv4Net) -> Result<Ipv4Addr> {
+    fn find_available_ip(&self, net: Ipv4Net) -> Result<Ipv4Addr> {
         let server_ip = net.addr();
         net.hosts()
             .find(|ip| *ip != server_ip && !self.users.iter().any(|u| u.ip == *ip))
-            .ok_or_else(|| anyhow!("No available IP addresses in subnet {}", net))
+            .ok_or_else(|| anyhow!("No available IP addresses in subnet {net}"))
     }
 }
 
@@ -96,9 +98,9 @@ fn main() -> Result<()> {
     match cli.command {
         Commands::Init => handle_init(),
         Commands::List => handle_list(),
-        Commands::Add { name } => handle_add(name),
-        Commands::Remove { name } => handle_remove(name),
-        Commands::Cat { name } => handle_cat(name),
+        Commands::Add { name } => handle_add(&name),
+        Commands::Remove { name } => handle_remove(&name),
+        Commands::Cat { name } => handle_cat(&name),
         Commands::Update => handle_update(),
         Commands::Start => handle_start(),
         Commands::Stop => handle_stop(),
@@ -106,7 +108,9 @@ fn main() -> Result<()> {
 }
 
 fn handle_init() -> Result<()> {
-    if !std::path::Path::new(DATA_PATH).exists() {
+    if std::path::Path::new(DATA_PATH).exists() {
+        println!("Database already exists at {DATA_PATH}");
+    } else {
         let priv_key = run_wg(&["genkey"], None)?;
         let pub_key = run_wg(&["pubkey"], Some(&priv_key))?;
         let config = Config {
@@ -116,8 +120,6 @@ fn handle_init() -> Result<()> {
         };
         config.save()?;
         println!("Initialized empty database at {DATA_PATH}");
-    } else {
-        println!("Database already exists at {DATA_PATH}");
     }
     sync_wireguard()
 }
@@ -132,53 +134,56 @@ fn handle_list() -> Result<()> {
     Ok(())
 }
 
-fn handle_add(name: String) -> Result<()> {
+fn handle_add(name: &str) -> Result<()> {
     let mut config = Config::load()?;
     if config.users.iter().any(|u| u.name == name) {
-        return Err(anyhow!("User '{}' already exists.", name));
+        return Err(anyhow!("User '{name}' already exists."));
     }
 
     let env = WgEnv::from_env()?;
-    let ip = config.find_available_ip(&env.server_net)?;
+    let ip = config.find_available_ip(env.server_net)?;
 
     let priv_key = run_wg(&["genkey"], None)?;
     let pub_key = run_wg(&["pubkey"], Some(&priv_key))?;
 
     config.users.push(User {
-        name: name.clone(),
+        name: name.to_string(),
         ip,
         priv_key,
         pub_key,
     });
 
     config.save()?;
-    println!("User '{}' added with IP {}", name, ip);
+    println!("User '{name}' added with IP {ip}");
     Ok(())
 }
 
-fn handle_remove(name: String) -> Result<()> {
+fn handle_remove(name: &str) -> Result<()> {
     let mut config = Config::load()?;
     let initial_len = config.users.len();
     config.users.retain(|u| u.name != name);
 
     if config.users.len() < initial_len {
         config.save()?;
-        println!("User '{}' removed.", name);
+        println!("User '{name}' removed.");
     } else {
-        println!("User '{}' not found.", name);
+        println!("User '{name}' not found.");
     }
     Ok(())
 }
 
-fn handle_cat(name: String) -> Result<()> {
+fn handle_cat(name: &str) -> Result<()> {
     let config = Config::load()?;
     let user = config
         .users
         .iter()
         .find(|u| u.name == name)
-        .ok_or_else(|| anyhow!("User '{}' not found.", name))?;
+        .ok_or_else(|| anyhow!("User '{name}' not found."))?;
 
     let env = WgEnv::from_env()?;
+    let prefix = env.server_net.prefix_len();
+    let endpoint = &env.endpoint;
+    let pub_key = &config.server_pub_key;
 
     println!(
         "[Interface]
@@ -192,11 +197,7 @@ Endpoint = {}
 AllowedIPs = 0.0.0.0/0
 PersistentKeepalive = 25
 ",
-        user.ip,
-        env.server_net.prefix_len(),
-        user.priv_key,
-        config.server_pub_key,
-        env.endpoint
+        user.ip, prefix, user.priv_key, pub_key, endpoint
     );
     Ok(())
 }
@@ -227,7 +228,7 @@ fn run_wg(args: &[&str], input: Option<&str>) -> Result<String> {
         .with_context(|| format!("Failed to spawn 'wg {}'", args.join(" ")))?;
 
     if let Some(in_str) = input {
-        let mut stdin = child.stdin.take().unwrap();
+        let mut stdin = child.stdin.take().expect("Failed to open stdin");
         stdin.write_all(in_str.as_bytes())?;
     }
 
@@ -247,10 +248,10 @@ fn run_wg_quick(cmd: &str) -> Result<()> {
     let status = Command::new("wg-quick")
         .args([cmd, INTERFACE])
         .status()
-        .with_context(|| format!("Failed to execute 'wg-quick {} {}'", cmd, INTERFACE))?;
+        .with_context(|| format!("Failed to execute 'wg-quick {cmd} {INTERFACE}'"))?;
 
     if !status.success() {
-        return Err(anyhow!("wg-quick {} reported failure: {}", cmd, status));
+        return Err(anyhow!("wg-quick {cmd} reported failure: {status}"));
     }
     Ok(())
 }
@@ -259,38 +260,56 @@ fn sync_wireguard() -> Result<()> {
     let config = Config::load()?;
     let env = WgEnv::from_env()?;
 
+    let server_net = &env.server_net;
+    let priv_key = &config.server_priv_key;
     let mut conf = format!(
         "[Interface]
-Address = {}
+Address = {server_net}
 SaveConfig = false
 ListenPort = 51820
-PrivateKey = {}
-",
-        env.server_net, config.server_priv_key
+PrivateKey = {priv_key}
+"
     );
 
     for u in &config.users {
-        conf.push_str(&format!(
-            "\n[Peer]
-# Name: {}
-PublicKey = {}
-AllowedIPs = {}/32
-",
-            u.name, u.pub_key, u.ip
-        ));
+        let name = &u.name;
+        let pub_key = &u.pub_key;
+        let ip = &u.ip;
+        write!(
+            conf,
+            "\n[Peer]\n# Name: {name}\nPublicKey = {pub_key}\nAllowedIPs = {ip}/32\n"
+        )
+        .context("Failed to build config string")?;
     }
 
-    fs::write(LOCAL_CONF, &conf).with_context(|| format!("Failed to write {}", LOCAL_CONF))?;
+    fs::write(LOCAL_CONF, &conf).with_context(|| format!("Failed to write {LOCAL_CONF}"))?;
     println!("Generated {LOCAL_CONF}");
 
-    let system_conf = format!("/etc/wireguard/{}.conf", INTERFACE);
+    let system_conf = format!("/etc/wireguard/{INTERFACE}.conf");
     match fs::copy(LOCAL_CONF, &system_conf) {
         Ok(_) => {
-            let status = Command::new("wg")
-                .args(["setconf", INTERFACE, &system_conf])
-                .status()
-                .with_context(|| "Failed to exec wg setconf".to_string())?;
+            // 'wg setconf' does not support 'Address' or 'SaveConfig'.
+            // We must strip them before applying.
+            let wg_only_conf: String = conf
+                .lines()
+                .filter(|line| {
+                    let l = line.trim().to_lowercase();
+                    !l.starts_with("address") && !l.starts_with("saveconfig")
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
 
+            let mut child = Command::new("wg")
+                .args(["setconf", INTERFACE, "/dev/stdin"])
+                .stdin(Stdio::piped())
+                .spawn()
+                .context("Failed to spawn 'wg setconf'")?;
+
+            let mut stdin = child.stdin.take().expect("Failed to open stdin");
+            stdin.write_all(wg_only_conf.as_bytes())?;
+            drop(stdin);
+
+            let status = child.wait()?;
             if status.success() {
                 println!("System WireGuard configuration updated successfully.");
             } else {
@@ -298,11 +317,7 @@ AllowedIPs = {}/32
             }
         }
         Err(e) => {
-            return Err(anyhow!(
-                "Failed to copy to {}: {}. Try sudo.",
-                system_conf,
-                e
-            ));
+            return Err(anyhow!("Failed to copy to {system_conf}: {e}. Try sudo."));
         }
     }
     Ok(())
