@@ -302,7 +302,11 @@ PostDown = iptables -D FORWARD -i {INTERFACE} -o {INTERFACE} -j ACCEPT; iptables
                 .lines()
                 .filter(|line| {
                     let l = line.trim().to_lowercase();
-                    !l.starts_with("address") && !l.starts_with("saveconfig")
+                    !l.starts_with("address")
+                        && !l.starts_with("saveconfig")
+                        && !l.starts_with("preup")
+                        && !l.starts_with("postup")
+                        && !l.starts_with("postdown")
                 })
                 .collect::<Vec<_>>()
                 .join("\n");
