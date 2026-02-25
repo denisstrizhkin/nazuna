@@ -26,6 +26,7 @@ Nazuna is configured through environment variables to remain portable and secure
 |----------|-------------|---------|
 | `WG_SERVER_IP` | **Required**. The internal VPN IP and subnet mask. | `10.50.0.1/24` |
 | `WG_ENDPOINT` | **Required**. The public IP/DNS and port clients connect to. | `vpn.example.com:51820` |
+| `WG_INTERFACE` | **Required**. The external network interface for NAT. | `eth0` |
 
 ## 🛠️ Usage
 

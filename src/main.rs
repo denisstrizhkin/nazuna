@@ -73,6 +73,7 @@ impl Config {
 struct WgEnv {
     endpoint: String,
     server_net: Ipv4Net,
+    external_interface: String,
 }
 
 impl WgEnv {
@@ -85,6 +86,8 @@ impl WgEnv {
                 .context("WG_SERVER_IP environment variable is not set (e.g., '10.50.0.1/24')")?
                 .parse()
                 .context("Failed to parse WG_SERVER_IP as Ipv4Net")?,
+            external_interface: std::env::var("WG_INTERFACE")
+                .context("WG_INTERFACE environment variable is not set (e.g., 'eth0')")?,
         })
     }
 }
@@ -194,10 +197,10 @@ DNS = 1.1.1.1
 [Peer]
 PublicKey = {}
 Endpoint = {}
-AllowedIPs = 0.0.0.0/0
+AllowedIPs = {}, 0.0.0.0/0
 PersistentKeepalive = 25
 ",
-        user.ip, prefix, user.priv_key, pub_key, endpoint
+        user.ip, prefix, user.priv_key, pub_key, endpoint, env.server_net
     );
     Ok(())
 }
@@ -262,12 +265,17 @@ fn sync_wireguard() -> Result<()> {
 
     let server_net = &env.server_net;
     let priv_key = &config.server_priv_key;
+    let ext_if = &env.external_interface;
+
     let mut conf = format!(
         "[Interface]
 Address = {server_net}
 SaveConfig = false
 ListenPort = 51820
 PrivateKey = {priv_key}
+PreUp = sysctl -w net.ipv4.ip_forward=1
+PostUp = iptables -A FORWARD -i {INTERFACE} -o {INTERFACE} -j ACCEPT; iptables -t nat -A POSTROUTING -o {ext_if} -j MASQUERADE
+PostDown = iptables -D FORWARD -i {INTERFACE} -o {INTERFACE} -j ACCEPT; iptables -t nat -D POSTROUTING -o {ext_if} -j MASQUERADE
 "
     );
 
