@@ -12,6 +12,7 @@ use std::{
 };
 
 #[derive(Parser)]
+#[command(name = "nazuna", version, about = "A minimalist, purely data-driven management tool for WireGuard 🩸", long_about = None)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -19,13 +20,21 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// Initialize the server database and generate keys
     Init,
+    /// List all registered peers
     List,
+    /// Add a new peer (e.g. nazuna add "denis-laptop")
     Add { name: String },
+    /// Remove an existing peer
     Remove { name: String },
+    /// Print the WireGuard client configuration for a specific peer
     Cat { name: String },
+    /// Sync the database state with the WireGuard interface (generates config)
     Update,
+    /// Start the WireGuard interface
     Start,
+    /// Stop the WireGuard interface
     Stop,
 }
 
@@ -80,14 +89,14 @@ impl WgEnv {
     fn from_env() -> Result<Self> {
         Ok(Self {
             endpoint: std::env::var("WG_ENDPOINT").context(
-                "WG_ENDPOINT environment variable is not set (e.g., 'your.server.com:51820')",
+                "❌ WG_ENDPOINT environment variable is not set (e.g., 'your.server.com:51820')",
             )?,
             server_net: std::env::var("WG_SERVER_IP")
-                .context("WG_SERVER_IP environment variable is not set (e.g., '10.50.0.1/24')")?
+                .context("❌ WG_SERVER_IP environment variable is not set (e.g., '10.50.0.1/24')")?
                 .parse()
-                .context("Failed to parse WG_SERVER_IP as Ipv4Net")?,
+                .context("❌ Failed to parse WG_SERVER_IP as Ipv4Net")?,
             external_interface: std::env::var("WG_INTERFACE")
-                .context("WG_INTERFACE environment variable is not set (e.g., 'eth0')")?,
+                .context("❌ WG_INTERFACE environment variable is not set (e.g., 'eth0')")?,
         })
     }
 }
@@ -112,7 +121,7 @@ fn main() -> Result<()> {
 
 fn handle_init() -> Result<()> {
     if std::path::Path::new(DATA_PATH).exists() {
-        println!("Database already exists at {DATA_PATH}");
+        println!("⚠️  Database already exists at {DATA_PATH}");
     } else {
         let priv_key = run_wg(&["genkey"], None)?;
         let pub_key = run_wg(&["pubkey"], Some(&priv_key))?;
@@ -122,17 +131,18 @@ fn handle_init() -> Result<()> {
             server_pub_key: pub_key,
         };
         config.save()?;
-        println!("Initialized empty database at {DATA_PATH}");
+        println!("✅ Initialized empty database at {DATA_PATH}");
     }
     sync_wireguard()
 }
 
 fn handle_list() -> Result<()> {
     let config = Config::load()?;
-    println!("{:<12} | {:<15} | {:<44}", "Name", "IP", "Public Key");
-    println!("{}", "-".repeat(75));
+    println!("📋 Registered Peers:");
+    println!("{:<20} | {:<15} | {:<44}", "Name", "IP", "Public Key");
+    println!("{}", "-".repeat(85));
     for u in &config.users {
-        println!("{:<12} | {:<15} | {:<44}", u.name, u.ip, u.pub_key);
+        println!("{:<20} | {:<15} | {:<44}", u.name, u.ip, u.pub_key);
     }
     Ok(())
 }
@@ -157,7 +167,7 @@ fn handle_add(name: &str) -> Result<()> {
     });
 
     config.save()?;
-    println!("User '{name}' added with IP {ip}");
+    println!("✅ User '{name}' added with IP {ip}");
     Ok(())
 }
 
@@ -168,9 +178,9 @@ fn handle_remove(name: &str) -> Result<()> {
 
     if config.users.len() < initial_len {
         config.save()?;
-        println!("User '{name}' removed.");
+        println!("🗑️  User '{name}' removed.");
     } else {
-        println!("User '{name}' not found.");
+        println!("⚠️  User '{name}' not found.");
     }
     Ok(())
 }
@@ -291,7 +301,7 @@ PostDown = iptables -D FORWARD -i {INTERFACE} -o {INTERFACE} -j ACCEPT; iptables
     }
 
     fs::write(LOCAL_CONF, &conf).with_context(|| format!("Failed to write {LOCAL_CONF}"))?;
-    println!("Generated {LOCAL_CONF}");
+    println!("✅ Generated {LOCAL_CONF}");
 
     let system_conf = format!("/etc/wireguard/{INTERFACE}.conf");
     match fs::copy(LOCAL_CONF, &system_conf) {
@@ -323,9 +333,9 @@ PostDown = iptables -D FORWARD -i {INTERFACE} -o {INTERFACE} -j ACCEPT; iptables
 
             let status = child.wait()?;
             if status.success() {
-                println!("System WireGuard configuration updated successfully.");
+                println!("🚀 System WireGuard configuration updated successfully.");
             } else {
-                eprintln!("'wg setconf' failed. If the interface is down, this is normal.");
+                eprintln!("⚠️  'wg setconf' failed. If the interface is down, this is normal.");
             }
         }
         Err(e) => {

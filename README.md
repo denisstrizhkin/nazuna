@@ -1,4 +1,4 @@
-# Nazuna 🎏
+# Nazuna 🩸
 
 Nazuna is a high-performance, minimalist, and purely data-driven management tool for WireGuard. It is designed for administrators who value simplicity, idempotency, and the "Infrastructure as Code" philosophy.
 
@@ -11,6 +11,7 @@ Unlike traditional management tools that create a mess of directories and files,
 - **Stateless Generation**: Server and client configurations are generated on-the-fly from the database.
 - **Robust Error Handling**: Powered by `anyhow` with deep contextual diagnostics for every failure point.
 - **Senior Rust Standards**: Clean, DRY, and idiomatic codebase.
+- **Pleasant CLI UX**: Enjoy descriptive success/error prompts decorated with emojis and nicely formatted tables.
 
 ## 📋 Prerequisites
 
@@ -35,6 +36,7 @@ Generate the server's identity and the initial database.
 ```bash
 export WG_SERVER_IP=10.50.0.1/24
 export WG_ENDPOINT=vpn.example.com:51820
+export WG_INTERFACE=eth0
 cargo run -- init
 ```
 
@@ -42,7 +44,13 @@ cargo run -- init
 Adding a peer is instant. No configuration files are written to disk yet; only the database is updated.
 ```bash
 cargo run -- add "denis-laptop"
+# ✅ User 'denis-laptop' added with IP 10.50.0.2
+
 cargo run -- list
+# 📋 Registered Peers:
+# Name                 | IP              | Public Key                                  
+# -------------------------------------------------------------------------------------
+# denis-laptop         | 10.50.0.2       | yN9p9KtziHtGkZ2OIrwkfn/zZWBqMu8ObI9LavENBw8=
 ```
 
 ### 3. Deploying to System
