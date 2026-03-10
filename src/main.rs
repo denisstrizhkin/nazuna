@@ -47,17 +47,23 @@ struct User {
     pub_key: String,
 }
 
-#[derive(Serialize, Deserialize, Debug, Default)]
+#[derive(Serialize, Deserialize, Debug)]
 struct Config {
     users: Vec<User>,
     server_pub_key: String,
     server_priv_key: String,
+    endpoint: String,
+    server_net: Ipv4Net,
+    external_interface: String,
+    wg_interface: String,
 }
 
 impl Config {
     fn load() -> Result<Self> {
         if !std::path::Path::new(DATA_PATH).exists() {
-            return Ok(Config::default());
+            return Err(anyhow!(
+                "❌ Database not found at {DATA_PATH}. Please run 'init' first."
+            ));
         }
         let data = fs::read_to_string(DATA_PATH)
             .with_context(|| format!("Failed to read database file {DATA_PATH}"))?;
@@ -80,31 +86,8 @@ impl Config {
     }
 }
 
-struct WgEnv {
-    endpoint: String,
-    server_net: Ipv4Net,
-    external_interface: String,
-}
-
-impl WgEnv {
-    fn from_env() -> Result<Self> {
-        Ok(Self {
-            endpoint: std::env::var("WG_ENDPOINT").context(
-                "❌ WG_ENDPOINT environment variable is not set (e.g., 'your.server.com:51820')",
-            )?,
-            server_net: std::env::var("WG_SERVER_IP")
-                .context("❌ WG_SERVER_IP environment variable is not set (e.g., '10.50.0.1/24')")?
-                .parse()
-                .context("❌ Failed to parse WG_SERVER_IP as Ipv4Net")?,
-            external_interface: std::env::var("WG_INTERFACE")
-                .context("❌ WG_INTERFACE environment variable is not set (e.g., 'eth0')")?,
-        })
-    }
-}
-
 const DATA_PATH: &str = "./users.json";
-const LOCAL_CONF: &str = "./server.conf";
-const INTERFACE: &str = "wg0";
+
 
 fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
@@ -132,26 +115,42 @@ fn handle_init() -> Result<()> {
     if std::path::Path::new(DATA_PATH).exists() {
         info!("⚠️  Database already exists at {DATA_PATH}");
     } else {
+        let endpoint = std::env::var("WG_ENDPOINT").context(
+            "❌ WG_ENDPOINT environment variable is not set (e.g., 'your.server.com:51820')",
+        )?;
+        let server_net: Ipv4Net = std::env::var("WG_SERVER_IP")
+            .context("❌ WG_SERVER_IP environment variable is not set (e.g., '10.50.0.1/24')")?
+            .parse()
+            .context("❌ Failed to parse WG_SERVER_IP as Ipv4Net")?;
+        let external_interface = std::env::var("WG_INTERFACE")
+            .context("❌ WG_INTERFACE environment variable is not set (e.g., 'eth0')")?;
+        let wg_interface = std::env::var("WG_LOCAL_INTERFACE").unwrap_or_else(|_| "wg0".to_string());
+
         let priv_key = run_wg(&["genkey"], None)?;
         let pub_key = run_wg(&["pubkey"], Some(&priv_key))?;
+
         let config = Config {
             users: vec![],
             server_priv_key: priv_key,
             server_pub_key: pub_key,
+            endpoint,
+            server_net,
+            external_interface,
+            wg_interface,
         };
         config.save()?;
-        info!("✅ Initialized empty database at {DATA_PATH}");
+        info!("✅ Initialized database at {DATA_PATH} with environment parameters.");
     }
     Ok(())
 }
 
 fn handle_list() -> Result<()> {
     let config = Config::load()?;
-    println!("📋 Registered Peers:");
-    println!("{:<20} | {:<15} | {:<44}", "Name", "IP", "Public Key");
-    println!("{}", "-".repeat(85));
+    info!("📋 Registered Peers:");
+    info!("{:<20} | {:<15} | {:<44}", "Name", "IP", "Public Key");
+    info!("{}", "-".repeat(85));
     for u in &config.users {
-        println!("{:<20} | {:<15} | {:<44}", u.name, u.ip, u.pub_key);
+        info!("{:<20} | {:<15} | {:<44}", u.name, u.ip, u.pub_key);
     }
     Ok(())
 }
@@ -162,8 +161,7 @@ fn handle_add(name: &str) -> Result<()> {
         return Err(anyhow!("User '{name}' already exists."));
     }
 
-    let env = WgEnv::from_env()?;
-    let ip = config.find_available_ip(env.server_net)?;
+    let ip = config.find_available_ip(config.server_net)?;
 
     let priv_key = run_wg(&["genkey"], None)?;
     let pub_key = run_wg(&["pubkey"], Some(&priv_key))?;
@@ -202,12 +200,11 @@ fn handle_cat(name: &str) -> Result<()> {
         .find(|u| u.name == name)
         .ok_or_else(|| anyhow!("User '{name}' not found."))?;
 
-    let env = WgEnv::from_env()?;
-    let prefix = env.server_net.prefix_len();
-    let endpoint = &env.endpoint;
+    let prefix = config.server_net.prefix_len();
+    let endpoint = &config.endpoint;
     let pub_key = &config.server_pub_key;
 
-    println!(
+    info!(
         "[Interface]
 Address = {}/{}
 PrivateKey = {}
@@ -219,7 +216,7 @@ Endpoint = {}
 AllowedIPs = {}, 0.0.0.0/0
 PersistentKeepalive = 25
 ",
-        user.ip, prefix, user.priv_key, pub_key, endpoint, env.server_net
+        user.ip, prefix, user.priv_key, pub_key, endpoint, config.server_net
     );
     Ok(())
 }
@@ -229,11 +226,13 @@ fn handle_update() -> Result<()> {
 }
 
 fn handle_start() -> Result<()> {
-    run_wg_quick("up")
+    let config = Config::load()?;
+    run_wg_quick("up", &config.wg_interface)
 }
 
 fn handle_stop() -> Result<()> {
-    run_wg_quick("down")
+    let config = Config::load()?;
+    run_wg_quick("down", &config.wg_interface)
 }
 
 fn run_wg(args: &[&str], input: Option<&str>) -> Result<String> {
@@ -266,11 +265,11 @@ fn run_wg(args: &[&str], input: Option<&str>) -> Result<String> {
     }
 }
 
-fn run_wg_quick(cmd: &str) -> Result<()> {
+fn run_wg_quick(cmd: &str, interface: &str) -> Result<()> {
     let status = Command::new("wg-quick")
-        .args([cmd, INTERFACE])
+        .args([cmd, interface])
         .status()
-        .with_context(|| format!("Failed to execute 'wg-quick {cmd} {INTERFACE}'"))?;
+        .with_context(|| format!("Failed to execute 'wg-quick {cmd} {interface}'"))?;
 
     if !status.success() {
         return Err(anyhow!("wg-quick {cmd} reported failure: {status}"));
@@ -280,11 +279,11 @@ fn run_wg_quick(cmd: &str) -> Result<()> {
 
 fn sync_wireguard() -> Result<()> {
     let config = Config::load()?;
-    let env = WgEnv::from_env()?;
 
-    let server_net = &env.server_net;
+    let server_net = &config.server_net;
     let priv_key = &config.server_priv_key;
-    let ext_if = &env.external_interface;
+    let ext_if = &config.external_interface;
+    let wg_if = &config.wg_interface;
 
     let mut conf = format!(
         "[Interface]
@@ -293,8 +292,8 @@ SaveConfig = false
 ListenPort = 51820
 PrivateKey = {priv_key}
 PreUp = sysctl -w net.ipv4.ip_forward=1
-PostUp = iptables -A FORWARD -i {INTERFACE} -o {INTERFACE} -j ACCEPT; iptables -t nat -A POSTROUTING -o {ext_if} -j MASQUERADE
-PostDown = iptables -D FORWARD -i {INTERFACE} -o {INTERFACE} -j ACCEPT; iptables -t nat -D POSTROUTING -o {ext_if} -j MASQUERADE
+PostUp = iptables -A FORWARD -i {wg_if} -o {wg_if} -j ACCEPT; iptables -t nat -A POSTROUTING -o {ext_if} -j MASQUERADE
+PostDown = iptables -D FORWARD -i {wg_if} -o {wg_if} -j ACCEPT; iptables -t nat -D POSTROUTING -o {ext_if} -j MASQUERADE
 "
     );
 
@@ -309,11 +308,13 @@ PostDown = iptables -D FORWARD -i {INTERFACE} -o {INTERFACE} -j ACCEPT; iptables
         .context("Failed to build config string")?;
     }
 
-    fs::write(LOCAL_CONF, &conf).with_context(|| format!("Failed to write {LOCAL_CONF}"))?;
-    info!("✅ Generated {LOCAL_CONF}");
+    let tmp_path = format!("/tmp/nazuna_{}.conf", wg_if);
+    fs::write(&tmp_path, &conf)
+        .with_context(|| format!("Failed to write temporary config to {tmp_path}"))?;
+    info!("✅ Generated temporary config at {tmp_path}");
 
-    let system_conf = format!("/etc/wireguard/{INTERFACE}.conf");
-    match fs::copy(LOCAL_CONF, &system_conf) {
+    let system_conf = format!("/etc/wireguard/{wg_if}.conf");
+    match fs::copy(&tmp_path, &system_conf) {
         Ok(_) => {
             // 'wg setconf' does not support 'Address' or 'SaveConfig'.
             // We must strip them before applying.
@@ -331,7 +332,7 @@ PostDown = iptables -D FORWARD -i {INTERFACE} -o {INTERFACE} -j ACCEPT; iptables
                 .join("\n");
 
             let mut child = Command::new("wg")
-                .args(["setconf", INTERFACE, "/dev/stdin"])
+                .args(["setconf", wg_if, "/dev/stdin"])
                 .stdin(Stdio::piped())
                 .spawn()
                 .context("Failed to spawn 'wg setconf'")?;

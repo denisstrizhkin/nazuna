@@ -19,21 +19,22 @@ Unlike traditional management tools that create a mess of directories and files,
 - **WireGuard Tools**: The `wg` and `wg-quick` binaries must be in your `$PATH`.
 - **Permissions**: System configuration updates (`update`, `start`, `stop`) usually require `sudo`.
 
-## ⚙️ Configuration
+## ⚙️ Configuration (Initial Setup)
 
-Nazuna is configured through environment variables to remain portable and secure.
+Nazuna is configured through environment variables **during initialization**. Once initialized, these parameters are stored in `users.json` and are no longer required in the environment.
 
 | Variable | Description | Example |
 |----------|-------------|---------|
 | `WG_SERVER_IP` | **Required**. The internal VPN IP and subnet mask. | `10.50.0.1/24` |
 | `WG_ENDPOINT` | **Required**. The public IP/DNS and port clients connect to. | `vpn.example.com:51820` |
 | `WG_INTERFACE` | **Required**. The external network interface for NAT. | `eth0` |
+| `WG_LOCAL_INTERFACE` | *Optional*. The WireGuard interface name. Defaults to `wg0`. | `wg0` |
 | `RUST_LOG` | *Optional*. Logging level (defaults to `info`). | `debug`, `error` |
 
 ## 🛠️ Usage
 
 ### 1. Initialization
-Generate the server's identity and the initial database.
+Generate the server's identity and the initial database. This "burns" your environment configuration into the JSON database.
 ```bash
 export WG_SERVER_IP=10.50.0.1/24
 export WG_ENDPOINT=vpn.example.com:51820
