@@ -1,65 +1,20 @@
 #![allow(clippy::missing_errors_doc, clippy::missing_panics_doc)]
+mod cli;
 mod config;
 
 use anyhow::{Context, Result, anyhow};
-use clap::{Parser, Subcommand};
+use cli::{Cli, Commands};
 use config::{Config, User};
 use ipnet::Ipv4Net;
-use log::{error, info};
 use std::{
     io::Write as _,
     process::{Command, Stdio},
 };
 
-#[derive(Parser)]
-#[command(name = "nazuna", version, about = "A minimalist, purely data-driven management tool for WireGuard 🩸", long_about = None)]
-struct Cli {
-    /// Path to the database file
-    #[arg(short, long, default_value = "/etc/nazuna/nazuna.conf")]
-    config: std::path::PathBuf,
-
-    #[command(subcommand)]
-    command: Commands,
-}
-
-#[derive(Subcommand)]
-enum Commands {
-    /// Initialize the server database and generate keys
-    Init {
-        #[arg(long, default_value = "127.0.0.1")]
-        endpoint_ip: std::net::Ipv4Addr,
-        #[arg(long, default_value_t = 51820)]
-        endpoint_port: u16,
-        #[arg(long)]
-        client_dns: Option<std::net::Ipv4Addr>,
-        #[arg(long, default_value = "10.50.0.1/24")]
-        server_net: Ipv4Net,
-        #[arg(long, default_value = "eth0")]
-        external_interface: String,
-        #[arg(long, default_value = "wg0")]
-        wg_interface: String,
-    },
-    /// List all registered peers
-    List,
-    /// Add a new peer (e.g. nazuna add "denis-laptop")
-    Add { name: String },
-    /// Remove an existing peer
-    Remove { name: String },
-    /// Print the WireGuard client configuration for a specific peer
-    Cat { name: String },
-    /// Sync the database state with the WireGuard interface (generates config)
-    Update,
-    /// Start the WireGuard interface
-    Start,
-    /// Stop the WireGuard interface
-    Stop,
-}
-
 fn main() {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
-    let cli = Cli::parse();
+    let cli = cli::parse();
     if let Err(e) = run(cli) {
-        error!("{:?}", e);
+        eprintln!("{:?}", e);
         std::process::exit(1);
     }
 }
@@ -104,7 +59,7 @@ fn handle_init(
     wg_interface: String,
 ) -> Result<()> {
     if path.exists() {
-        info!("⚠️  Database already exists at {}", path.display());
+        println!("⚠️  Database already exists at {}", path.display());
     } else {
         let priv_key = run_wg(&["genkey"], None)?;
         let pub_key = run_wg(&["pubkey"], Some(&priv_key))?;
@@ -121,7 +76,7 @@ fn handle_init(
             wg_interface,
         };
         config.save(path)?;
-        info!(
+        println!(
             "✅ Initialized database at {} with defaults or environment parameters.",
             path.display()
         );
@@ -131,11 +86,11 @@ fn handle_init(
 
 fn handle_list(path: &std::path::Path) -> Result<()> {
     let config = Config::open(path)?;
-    info!("📋 Registered Peers:");
-    info!("{:<20} | {:<15} | {:<44}", "Name", "IP", "Public Key");
-    info!("{}", "-".repeat(85));
+    println!("📋 Registered Peers:");
+    println!("{:<20} | {:<15} | {:<44}", "Name", "IP", "Public Key");
+    println!("{}", "-".repeat(85));
     for u in &config.users {
-        info!("{:<20} | {:<15} | {:<44}", u.name, u.ip, u.pub_key);
+        println!("{:<20} | {:<15} | {:<44}", u.name, u.ip, u.pub_key);
     }
     Ok(())
 }
@@ -159,7 +114,7 @@ fn handle_add(path: &std::path::Path, name: &str) -> Result<()> {
     });
 
     config.save(path)?;
-    info!("✅ User '{name}' added with IP {ip}");
+    println!("✅ User '{name}' added with IP {ip}");
     Ok(())
 }
 
@@ -170,9 +125,9 @@ fn handle_remove(path: &std::path::Path, name: &str) -> Result<()> {
 
     if config.users.len() < initial_len {
         config.save(path)?;
-        info!("🗑️  User '{name}' removed.");
+        println!("🗑️  User '{name}' removed.");
     } else {
-        info!("⚠️  User '{name}' not found.");
+        println!("⚠️  User '{name}' not found.");
     }
     Ok(())
 }
@@ -269,9 +224,9 @@ fn sync_wireguard(path: &std::path::Path) -> Result<()> {
 
     let status = child.wait()?;
     if status.success() {
-        info!("🚀 System WireGuard configuration updated successfully.");
+        println!("🚀 System WireGuard configuration updated successfully.");
     } else {
-        error!("⚠️  'wg setconf' failed. If the interface is down, this is normal.");
+        eprintln!("⚠️  'wg setconf' failed. If the interface is down, this is normal.");
     }
     Ok(())
 }
