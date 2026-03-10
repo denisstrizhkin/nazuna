@@ -2,6 +2,7 @@
 use anyhow::{Context, Result, anyhow};
 use clap::{Parser, Subcommand};
 use ipnet::Ipv4Net;
+use log::{error, info};
 use serde::{Deserialize, Serialize};
 use std::{
     fmt::Write as _,
@@ -105,7 +106,15 @@ const DATA_PATH: &str = "./users.json";
 const LOCAL_CONF: &str = "./server.conf";
 const INTERFACE: &str = "wg0";
 
-fn main() -> Result<()> {
+fn main() {
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    if let Err(e) = run() {
+        error!("{:?}", e);
+        std::process::exit(1);
+    }
+}
+
+fn run() -> Result<()> {
     let cli = Cli::try_parse().with_context(|| "Unable to parse args!")?;
     match cli.command {
         Commands::Init => handle_init(),
@@ -121,7 +130,7 @@ fn main() -> Result<()> {
 
 fn handle_init() -> Result<()> {
     if std::path::Path::new(DATA_PATH).exists() {
-        println!("⚠️  Database already exists at {DATA_PATH}");
+        info!("⚠️  Database already exists at {DATA_PATH}");
     } else {
         let priv_key = run_wg(&["genkey"], None)?;
         let pub_key = run_wg(&["pubkey"], Some(&priv_key))?;
@@ -131,9 +140,9 @@ fn handle_init() -> Result<()> {
             server_pub_key: pub_key,
         };
         config.save()?;
-        println!("✅ Initialized empty database at {DATA_PATH}");
+        info!("✅ Initialized empty database at {DATA_PATH}");
     }
-    sync_wireguard()
+    Ok(())
 }
 
 fn handle_list() -> Result<()> {
@@ -167,7 +176,7 @@ fn handle_add(name: &str) -> Result<()> {
     });
 
     config.save()?;
-    println!("✅ User '{name}' added with IP {ip}");
+    info!("✅ User '{name}' added with IP {ip}");
     Ok(())
 }
 
@@ -178,9 +187,9 @@ fn handle_remove(name: &str) -> Result<()> {
 
     if config.users.len() < initial_len {
         config.save()?;
-        println!("🗑️  User '{name}' removed.");
+        info!("🗑️  User '{name}' removed.");
     } else {
-        println!("⚠️  User '{name}' not found.");
+        info!("⚠️  User '{name}' not found.");
     }
     Ok(())
 }
@@ -301,7 +310,7 @@ PostDown = iptables -D FORWARD -i {INTERFACE} -o {INTERFACE} -j ACCEPT; iptables
     }
 
     fs::write(LOCAL_CONF, &conf).with_context(|| format!("Failed to write {LOCAL_CONF}"))?;
-    println!("✅ Generated {LOCAL_CONF}");
+    info!("✅ Generated {LOCAL_CONF}");
 
     let system_conf = format!("/etc/wireguard/{INTERFACE}.conf");
     match fs::copy(LOCAL_CONF, &system_conf) {
@@ -333,9 +342,9 @@ PostDown = iptables -D FORWARD -i {INTERFACE} -o {INTERFACE} -j ACCEPT; iptables
 
             let status = child.wait()?;
             if status.success() {
-                println!("🚀 System WireGuard configuration updated successfully.");
+                info!("🚀 System WireGuard configuration updated successfully.");
             } else {
-                eprintln!("⚠️  'wg setconf' failed. If the interface is down, this is normal.");
+                error!("⚠️  'wg setconf' failed. If the interface is down, this is normal.");
             }
         }
         Err(e) => {
