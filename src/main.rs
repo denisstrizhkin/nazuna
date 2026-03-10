@@ -7,7 +7,6 @@ use config::{Config, User};
 use ipnet::Ipv4Net;
 use log::{error, info};
 use std::{
-    fs,
     io::Write as _,
     process::{Command, Stdio},
 };
@@ -185,10 +184,7 @@ fn handle_cat(path: &std::path::Path, name: &str) -> Result<()> {
         .iter()
         .find(|u| u.name == name)
         .ok_or_else(|| anyhow!("User '{name}' not found."))?;
-    let mut conf_out = String::new();
-    config.write_client_conf(&mut conf_out, user)?;
-    print!("{}", conf_out);
-    Ok(())
+    config.write_client_conf(&mut std::io::stdout(), user)
 }
 
 fn handle_update(path: &std::path::Path) -> Result<()> {
@@ -251,15 +247,13 @@ fn sync_wireguard(path: &std::path::Path) -> Result<()> {
     let config = Config::open(path)?;
     let wg_if = &config.wg_interface;
 
-    let mut conf = String::new();
-    config.write_wg_conf(&mut conf, true)?;
-
     let system_conf = format!("/etc/wireguard/{wg_if}.conf");
-    fs::write(&system_conf, &conf)
-        .with_context(|| format!("Failed to write config to {system_conf}. Try sudo."))?;
+    let mut file = std::fs::File::create(&system_conf)
+        .with_context(|| format!("Failed to create config at {system_conf}. Try sudo."))?;
 
-    let mut wg_only_conf = String::new();
-    config.write_wg_conf(&mut wg_only_conf, false)?;
+    config
+        .write_wg_conf(&mut file, true)
+        .context("Failed to write WireGuard server config to disk")?;
 
     let mut child = Command::new("wg")
         .args(["setconf", wg_if, "/dev/stdin"])
@@ -267,9 +261,11 @@ fn sync_wireguard(path: &std::path::Path) -> Result<()> {
         .spawn()
         .context("Failed to spawn 'wg setconf'")?;
 
-    let mut stdin = child.stdin.take().expect("Failed to open stdin");
-    stdin.write_all(wg_only_conf.as_bytes())?;
-    drop(stdin);
+    if let Some(mut stdin) = child.stdin.take() {
+        config
+            .write_wg_conf(&mut stdin, false)
+            .context("Failed to write live WireGuard config to stdin")?;
+    }
 
     let status = child.wait()?;
     if status.success() {

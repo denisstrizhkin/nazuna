@@ -1,7 +1,7 @@
 use anyhow::{Context, Result, anyhow};
 use ipnet::Ipv4Net;
 use serde::{Deserialize, Serialize};
-use std::{net::Ipv4Addr, path::Path};
+use std::{io::Write, net::Ipv4Addr, path::Path};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct User {
@@ -46,54 +46,48 @@ impl Config {
             .ok_or_else(|| anyhow!("No available IP addresses in subnet {net}"))
     }
 
-    pub fn write_wg_conf<W: std::fmt::Write>(&self, w: &mut W, is_full: bool) -> Result<()> {
-        let mut inner = || -> std::fmt::Result {
-            writeln!(w, "[Interface]")?;
-            if is_full {
-                writeln!(w, "Address = {}", self.server_net)?;
-                writeln!(w, "SaveConfig = false")?;
-            }
-            writeln!(w, "PrivateKey = {}", self.server_priv_key)?;
-            writeln!(w, "ListenPort = {}", self.endpoint_port)?;
-            if is_full {
-                writeln!(w, "PreUp = sysctl -w net.ipv4.ip_forward=1")?;
-                writeln!(
-                    w,
-                    "PostUp = iptables -A FORWARD -i {} -j ACCEPT; iptables -t nat -A POSTROUTING -o {} -j MASQUERADE",
-                    self.wg_interface, self.external_interface
-                )?;
-                writeln!(
-                    w,
-                    "PostDown = iptables -D FORWARD -i {} -j ACCEPT; iptables -t nat -D POSTROUTING -o {} -j MASQUERADE",
-                    self.wg_interface, self.external_interface
-                )?;
-            }
-            for user in &self.users {
-                writeln!(w, "\n[Peer]")?;
-                writeln!(w, "# Name: {}", user.name)?;
-                writeln!(w, "PublicKey = {}", user.pub_key)?;
-                writeln!(w, "AllowedIPs = {}/32", user.ip)?;
-            }
-            Ok(())
-        };
-        inner().context("Failed to write WireGuard server config")
+    pub fn write_wg_conf<W: Write>(&self, w: &mut W, is_full: bool) -> Result<()> {
+        writeln!(w, "[Interface]")?;
+        if is_full {
+            writeln!(w, "Address = {}", self.server_net)?;
+            writeln!(w, "SaveConfig = false")?;
+        }
+        writeln!(w, "PrivateKey = {}", self.server_priv_key)?;
+        writeln!(w, "ListenPort = {}", self.endpoint_port)?;
+        if is_full {
+            writeln!(w, "PreUp = sysctl -w net.ipv4.ip_forward=1")?;
+            writeln!(
+                w,
+                "PostUp = iptables -A FORWARD -i {} -j ACCEPT; iptables -t nat -A POSTROUTING -o {} -j MASQUERADE",
+                self.wg_interface, self.external_interface
+            )?;
+            writeln!(
+                w,
+                "PostDown = iptables -D FORWARD -i {} -j ACCEPT; iptables -t nat -D POSTROUTING -o {} -j MASQUERADE",
+                self.wg_interface, self.external_interface
+            )?;
+        }
+        for user in &self.users {
+            writeln!(w, "\n[Peer]")?;
+            writeln!(w, "# Name: {}", user.name)?;
+            writeln!(w, "PublicKey = {}", user.pub_key)?;
+            writeln!(w, "AllowedIPs = {}/32", user.ip)?;
+        }
+        Ok(())
     }
 
-    pub fn write_client_conf<W: std::fmt::Write>(&self, w: &mut W, user: &User) -> Result<()> {
-        let mut inner = || -> std::fmt::Result {
-            writeln!(w, "[Interface]")?;
-            writeln!(w, "PrivateKey = {}", user.priv_key)?;
-            writeln!(w, "Address = {}/32", user.ip)?;
-            if let Some(dns) = self.client_dns {
-                writeln!(w, "DNS = {}", dns)?;
-            }
-            writeln!(w, "[Peer]")?;
-            writeln!(w, "PublicKey = {}", self.server_pub_key)?;
-            writeln!(w, "Endpoint = {}:{}", self.endpoint_ip, self.endpoint_port)?;
-            writeln!(w, "AllowedIPs = 0.0.0.0/0")?;
-            writeln!(w, "PersistentKeepalive = 25")?;
-            Ok(())
-        };
-        inner().context("Failed to write WireGuard client config")
+    pub fn write_client_conf<W: Write>(&self, w: &mut W, user: &User) -> Result<()> {
+        writeln!(w, "[Interface]")?;
+        writeln!(w, "PrivateKey = {}", user.priv_key)?;
+        writeln!(w, "Address = {}/32", user.ip)?;
+        if let Some(dns) = self.client_dns {
+            writeln!(w, "DNS = {}", dns)?;
+        }
+        writeln!(w, "[Peer]")?;
+        writeln!(w, "PublicKey = {}", self.server_pub_key)?;
+        writeln!(w, "Endpoint = {}:{}", self.endpoint_ip, self.endpoint_port)?;
+        writeln!(w, "AllowedIPs = 0.0.0.0/0")?;
+        writeln!(w, "PersistentKeepalive = 25")?;
+        Ok(())
     }
 }
