@@ -58,14 +58,14 @@ enum Commands {
 
 fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
-    if let Err(e) = run() {
+    let cli = Cli::parse();
+    if let Err(e) = run(cli) {
         error!("{:?}", e);
         std::process::exit(1);
     }
 }
 
-fn run() -> Result<()> {
-    let cli = Cli::try_parse().with_context(|| "Unable to parse args!")?;
+fn run(cli: Cli) -> Result<()> {
     let config_path = &cli.config;
 
     match cli.command {
