@@ -15,6 +15,10 @@ use std::{
 #[derive(Parser)]
 #[command(name = "nazuna", version, about = "A minimalist, purely data-driven management tool for WireGuard 🩸", long_about = None)]
 struct Cli {
+    /// Path to the database file
+    #[arg(short, long, default_value = "/etc/nazuna/nazuna.conf")]
+    config: std::path::PathBuf,
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -22,7 +26,16 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     /// Initialize the server database and generate keys
-    Init,
+    Init {
+        #[arg(long)]
+        endpoint: Option<String>,
+        #[arg(long)]
+        server_net: Option<Ipv4Net>,
+        #[arg(long)]
+        external_interface: Option<String>,
+        #[arg(long)]
+        wg_interface: Option<String>,
+    },
     /// List all registered peers
     List,
     /// Add a new peer (e.g. nazuna add "denis-laptop")
@@ -59,23 +72,28 @@ struct Config {
 }
 
 impl Config {
-    fn load() -> Result<Self> {
-        if !std::path::Path::new(DATA_PATH).exists() {
+    fn load(path: &std::path::Path) -> Result<Self> {
+        if !path.exists() {
             return Err(anyhow!(
-                "❌ Database not found at {DATA_PATH}. Please run 'init' first."
+                "❌ Database not found at {}. Please run 'init' first.",
+                path.display()
             ));
         }
-        let data = fs::read_to_string(DATA_PATH)
-            .with_context(|| format!("Failed to read database file {DATA_PATH}"))?;
+        let data = fs::read_to_string(path)
+            .with_context(|| format!("Failed to read database file {}", path.display()))?;
         serde_json::from_str(&data)
-            .with_context(|| format!("Failed to parse database JSON from {DATA_PATH}"))
+            .with_context(|| format!("Failed to parse database JSON from {}", path.display()))
     }
 
-    fn save(&self) -> Result<()> {
+    fn save(&self, path: &std::path::Path) -> Result<()> {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)
+                .with_context(|| format!("Failed to create directory {}", parent.display()))?;
+        }
         let data =
             serde_json::to_string_pretty(self).context("Failed to serialize database to JSON")?;
-        fs::write(DATA_PATH, data)
-            .with_context(|| format!("Failed to write database file to {DATA_PATH}"))
+        fs::write(path, data)
+            .with_context(|| format!("Failed to write database file to {}", path.display()))
     }
 
     fn find_available_ip(&self, net: Ipv4Net) -> Result<Ipv4Addr> {
@@ -85,9 +103,6 @@ impl Config {
             .ok_or_else(|| anyhow!("No available IP addresses in subnet {net}"))
     }
 }
-
-const DATA_PATH: &str = "./users.json";
-
 
 fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
@@ -99,32 +114,48 @@ fn main() {
 
 fn run() -> Result<()> {
     let cli = Cli::try_parse().with_context(|| "Unable to parse args!")?;
+    let config_path = &cli.config;
+
     match cli.command {
-        Commands::Init => handle_init(),
-        Commands::List => handle_list(),
-        Commands::Add { name } => handle_add(&name),
-        Commands::Remove { name } => handle_remove(&name),
-        Commands::Cat { name } => handle_cat(&name),
-        Commands::Update => handle_update(),
-        Commands::Start => handle_start(),
-        Commands::Stop => handle_stop(),
+        Commands::Init {
+            endpoint,
+            server_net,
+            external_interface,
+            wg_interface,
+        } => handle_init(
+            config_path,
+            endpoint,
+            server_net,
+            external_interface,
+            wg_interface,
+        ),
+        Commands::List => handle_list(config_path),
+        Commands::Add { name } => handle_add(config_path, &name),
+        Commands::Remove { name } => handle_remove(config_path, &name),
+        Commands::Cat { name } => handle_cat(config_path, &name),
+        Commands::Update => handle_update(config_path),
+        Commands::Start => handle_start(config_path),
+        Commands::Stop => handle_stop(config_path),
     }
 }
 
-fn handle_init() -> Result<()> {
-    if std::path::Path::new(DATA_PATH).exists() {
-        info!("⚠️  Database already exists at {DATA_PATH}");
+fn handle_init(
+    path: &std::path::Path,
+    endpoint: Option<String>,
+    server_net: Option<Ipv4Net>,
+    external_interface: Option<String>,
+    wg_interface: Option<String>,
+) -> Result<()> {
+    if path.exists() {
+        info!("⚠️  Database already exists at {}", path.display());
     } else {
-        let endpoint = std::env::var("WG_ENDPOINT").context(
-            "❌ WG_ENDPOINT environment variable is not set (e.g., 'your.server.com:51820')",
-        )?;
-        let server_net: Ipv4Net = std::env::var("WG_SERVER_IP")
-            .context("❌ WG_SERVER_IP environment variable is not set (e.g., '10.50.0.1/24')")?
-            .parse()
-            .context("❌ Failed to parse WG_SERVER_IP as Ipv4Net")?;
-        let external_interface = std::env::var("WG_INTERFACE")
-            .context("❌ WG_INTERFACE environment variable is not set (e.g., 'eth0')")?;
-        let wg_interface = std::env::var("WG_LOCAL_INTERFACE").unwrap_or_else(|_| "wg0".to_string());
+        let endpoint = endpoint.unwrap_or_else(|| "vpn.example.com:51820".to_string());
+
+        let server_net = server_net.unwrap_or_else(|| "10.50.0.1/24".parse().unwrap());
+
+        let external_interface = external_interface.unwrap_or_else(|| "eth0".to_string());
+
+        let wg_interface = wg_interface.unwrap_or_else(|| "wg0".to_string());
 
         let priv_key = run_wg(&["genkey"], None)?;
         let pub_key = run_wg(&["pubkey"], Some(&priv_key))?;
@@ -138,14 +169,17 @@ fn handle_init() -> Result<()> {
             external_interface,
             wg_interface,
         };
-        config.save()?;
-        info!("✅ Initialized database at {DATA_PATH} with environment parameters.");
+        config.save(path)?;
+        info!(
+            "✅ Initialized database at {} with defaults or environment parameters.",
+            path.display()
+        );
     }
     Ok(())
 }
 
-fn handle_list() -> Result<()> {
-    let config = Config::load()?;
+fn handle_list(path: &std::path::Path) -> Result<()> {
+    let config = Config::load(path)?;
     info!("📋 Registered Peers:");
     info!("{:<20} | {:<15} | {:<44}", "Name", "IP", "Public Key");
     info!("{}", "-".repeat(85));
@@ -155,8 +189,8 @@ fn handle_list() -> Result<()> {
     Ok(())
 }
 
-fn handle_add(name: &str) -> Result<()> {
-    let mut config = Config::load()?;
+fn handle_add(path: &std::path::Path, name: &str) -> Result<()> {
+    let mut config = Config::load(path)?;
     if config.users.iter().any(|u| u.name == name) {
         return Err(anyhow!("User '{name}' already exists."));
     }
@@ -173,18 +207,18 @@ fn handle_add(name: &str) -> Result<()> {
         pub_key,
     });
 
-    config.save()?;
+    config.save(path)?;
     info!("✅ User '{name}' added with IP {ip}");
     Ok(())
 }
 
-fn handle_remove(name: &str) -> Result<()> {
-    let mut config = Config::load()?;
+fn handle_remove(path: &std::path::Path, name: &str) -> Result<()> {
+    let mut config = Config::load(path)?;
     let initial_len = config.users.len();
     config.users.retain(|u| u.name != name);
 
     if config.users.len() < initial_len {
-        config.save()?;
+        config.save(path)?;
         info!("🗑️  User '{name}' removed.");
     } else {
         info!("⚠️  User '{name}' not found.");
@@ -192,8 +226,8 @@ fn handle_remove(name: &str) -> Result<()> {
     Ok(())
 }
 
-fn handle_cat(name: &str) -> Result<()> {
-    let config = Config::load()?;
+fn handle_cat(path: &std::path::Path, name: &str) -> Result<()> {
+    let config = Config::load(path)?;
     let user = config
         .users
         .iter()
@@ -221,17 +255,17 @@ PersistentKeepalive = 25
     Ok(())
 }
 
-fn handle_update() -> Result<()> {
-    sync_wireguard()
+fn handle_update(path: &std::path::Path) -> Result<()> {
+    sync_wireguard(path)
 }
 
-fn handle_start() -> Result<()> {
-    let config = Config::load()?;
+fn handle_start(path: &std::path::Path) -> Result<()> {
+    let config = Config::load(path)?;
     run_wg_quick("up", &config.wg_interface)
 }
 
-fn handle_stop() -> Result<()> {
-    let config = Config::load()?;
+fn handle_stop(path: &std::path::Path) -> Result<()> {
+    let config = Config::load(path)?;
     run_wg_quick("down", &config.wg_interface)
 }
 
@@ -277,8 +311,8 @@ fn run_wg_quick(cmd: &str, interface: &str) -> Result<()> {
     Ok(())
 }
 
-fn sync_wireguard() -> Result<()> {
-    let config = Config::load()?;
+fn sync_wireguard(path: &std::path::Path) -> Result<()> {
+    let config = Config::load(path)?;
 
     let server_net = &config.server_net;
     let priv_key = &config.server_priv_key;

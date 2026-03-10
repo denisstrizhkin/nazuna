@@ -6,7 +6,7 @@ Unlike traditional management tools that create a mess of directories and files,
 
 ## 🚀 Core Features
 
-- **Unified State**: Your entire peer list and server identity live in `users.json`.
+- **Unified State**: Your entire peer list and server identity live in a single config file (default: `/etc/nazuna/nazuna.conf`).
 - **Intelligent Networking**: Automatic IP allocation using `ipnet`. Just define your subnet, and Nazuna handles the math.
 - **Stateless Generation**: Server and client configurations are generated on-the-fly from the database.
 - **Robust Error Handling**: Powered by `anyhow` with deep contextual diagnostics for every failure point.
@@ -21,25 +21,27 @@ Unlike traditional management tools that create a mess of directories and files,
 
 ## ⚙️ Configuration (Initial Setup)
 
-Nazuna is configured through environment variables **during initialization**. Once initialized, these parameters are stored in `users.json` and are no longer required in the environment.
+Nazuna is configured through CLI flags **during initialization**. Once initialized, these parameters are stored in the database and are no longer required.
 
-| Variable | Description | Example |
-|----------|-------------|---------|
-| `WG_SERVER_IP` | **Required**. The internal VPN IP and subnet mask. | `10.50.0.1/24` |
-| `WG_ENDPOINT` | **Required**. The public IP/DNS and port clients connect to. | `vpn.example.com:51820` |
-| `WG_INTERFACE` | **Required**. The external network interface for NAT. | `eth0` |
-| `WG_LOCAL_INTERFACE` | *Optional*. The WireGuard interface name. Defaults to `wg0`. | `wg0` |
-| `RUST_LOG` | *Optional*. Logging level (defaults to `info`). | `debug`, `error` |
+| Flag | Description | Default / Example |
+|------------|-------------|-------------------|
+| `--server-net` | Internal VPN IP and subnet. | `10.50.0.1/24` |
+| `--endpoint` | Public IP/DNS for clients. | `vpn.example.com:51820` |
+| `--external-interface` | External WAN interface for NAT. | `eth0` |
+| `--wg-interface` | WireGuard interface name. | `wg0` |
+| `-c`, `--config` | Path to the JSON database. | `/etc/nazuna/nazuna.conf` |
+| `RUST_LOG` | Logging level. | `info` |
 
 ## 🛠️ Usage
 
 ### 1. Initialization
-Generate the server's identity and the initial database. This "burns" your environment configuration into the JSON database.
+Generate the server's identity and the initial database. Use flags, environment variables, or rely on reasonable defaults.
 ```bash
-export WG_SERVER_IP=10.50.0.1/24
-export WG_ENDPOINT=vpn.example.com:51820
-export WG_INTERFACE=eth0
-cargo run -- init
+# Using flags (recommended)
+sudo cargo run -- init --server-net 10.50.0.1/24 --endpoint vpn.example.com:51820
+
+# Using a custom database path
+sudo cargo run -- -c ./my_vpn.json init
 ```
 
 ### 2. Managing Peers
