@@ -26,7 +26,9 @@ Nazuna is configured through CLI flags **during initialization**. Once initializ
 | Flag | Description | Default / Example |
 |------------|-------------|-------------------|
 | `--server-net` | Internal VPN IP and subnet. | `10.50.0.1/24` |
-| `--endpoint` | Public IP/DNS for clients. | `vpn.example.com:51820` |
+| `--endpoint-ip` | Public IP for clients. | `1.2.3.4` |
+| `--endpoint-port` | Public port for clients. | `51820` |
+| `--client-dns` | DNS server for clients. | `1.1.1.1` |
 | `--external-interface` | External WAN interface for NAT. | `eth0` |
 | `--wg-interface` | WireGuard interface name. | `wg0` |
 | `-c`, `--config` | Path to the JSON database. | `/etc/nazuna/nazuna.conf` |
@@ -38,7 +40,7 @@ Nazuna is configured through CLI flags **during initialization**. Once initializ
 Generate the server's identity and the initial database. Use flags, environment variables, or rely on reasonable defaults.
 ```bash
 # Using flags (recommended)
-sudo cargo run -- init --server-net 10.50.0.1/24 --endpoint vpn.example.com:51820
+sudo cargo run -- init --server-net 10.50.0.1/24 --endpoint-ip 1.2.3.4 --endpoint-port 51820
 
 # Using a custom database path
 sudo cargo run -- -c ./my_vpn.json init

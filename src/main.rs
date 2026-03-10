@@ -7,7 +7,6 @@ use config::{Config, User};
 use ipnet::Ipv4Net;
 use log::{error, info};
 use std::{
-    fmt::Write as _,
     fs,
     io::Write as _,
     process::{Command, Stdio},
@@ -28,14 +27,18 @@ struct Cli {
 enum Commands {
     /// Initialize the server database and generate keys
     Init {
+        #[arg(long, default_value = "127.0.0.1")]
+        endpoint_ip: std::net::Ipv4Addr,
+        #[arg(long, default_value_t = 51820)]
+        endpoint_port: u16,
         #[arg(long)]
-        endpoint: Option<String>,
-        #[arg(long)]
-        server_net: Option<Ipv4Net>,
-        #[arg(long)]
-        external_interface: Option<String>,
-        #[arg(long)]
-        wg_interface: Option<String>,
+        client_dns: Option<std::net::Ipv4Addr>,
+        #[arg(long, default_value = "10.50.0.1/24")]
+        server_net: Ipv4Net,
+        #[arg(long, default_value = "eth0")]
+        external_interface: String,
+        #[arg(long, default_value = "wg0")]
+        wg_interface: String,
     },
     /// List all registered peers
     List,
@@ -67,13 +70,17 @@ fn run() -> Result<()> {
 
     match cli.command {
         Commands::Init {
-            endpoint,
+            endpoint_ip,
+            endpoint_port,
+            client_dns,
             server_net,
             external_interface,
             wg_interface,
         } => handle_init(
             config_path,
-            endpoint,
+            endpoint_ip,
+            endpoint_port,
+            client_dns,
             server_net,
             external_interface,
             wg_interface,
@@ -90,22 +97,16 @@ fn run() -> Result<()> {
 
 fn handle_init(
     path: &std::path::Path,
-    endpoint: Option<String>,
-    server_net: Option<Ipv4Net>,
-    external_interface: Option<String>,
-    wg_interface: Option<String>,
+    endpoint_ip: std::net::Ipv4Addr,
+    endpoint_port: u16,
+    client_dns: Option<std::net::Ipv4Addr>,
+    server_net: Ipv4Net,
+    external_interface: String,
+    wg_interface: String,
 ) -> Result<()> {
     if path.exists() {
         info!("⚠️  Database already exists at {}", path.display());
     } else {
-        let endpoint = endpoint.unwrap_or_else(|| "vpn.example.com:51820".to_string());
-
-        let server_net = server_net.unwrap_or_else(|| "10.50.0.1/24".parse().unwrap());
-
-        let external_interface = external_interface.unwrap_or_else(|| "eth0".to_string());
-
-        let wg_interface = wg_interface.unwrap_or_else(|| "wg0".to_string());
-
         let priv_key = run_wg(&["genkey"], None)?;
         let pub_key = run_wg(&["pubkey"], Some(&priv_key))?;
 
@@ -113,7 +114,9 @@ fn handle_init(
             users: vec![],
             server_priv_key: priv_key,
             server_pub_key: pub_key,
-            endpoint,
+            endpoint_ip,
+            endpoint_port,
+            client_dns,
             server_net,
             external_interface,
             wg_interface,
@@ -128,7 +131,7 @@ fn handle_init(
 }
 
 fn handle_list(path: &std::path::Path) -> Result<()> {
-    let config = Config::load(path)?;
+    let config = Config::open(path)?;
     info!("📋 Registered Peers:");
     info!("{:<20} | {:<15} | {:<44}", "Name", "IP", "Public Key");
     info!("{}", "-".repeat(85));
@@ -139,7 +142,7 @@ fn handle_list(path: &std::path::Path) -> Result<()> {
 }
 
 fn handle_add(path: &std::path::Path, name: &str) -> Result<()> {
-    let mut config = Config::load(path)?;
+    let mut config = Config::open(path)?;
     if config.users.iter().any(|u| u.name == name) {
         return Err(anyhow!("User '{name}' already exists."));
     }
@@ -162,7 +165,7 @@ fn handle_add(path: &std::path::Path, name: &str) -> Result<()> {
 }
 
 fn handle_remove(path: &std::path::Path, name: &str) -> Result<()> {
-    let mut config = Config::load(path)?;
+    let mut config = Config::open(path)?;
     let initial_len = config.users.len();
     config.users.retain(|u| u.name != name);
 
@@ -176,31 +179,15 @@ fn handle_remove(path: &std::path::Path, name: &str) -> Result<()> {
 }
 
 fn handle_cat(path: &std::path::Path, name: &str) -> Result<()> {
-    let config = Config::load(path)?;
+    let config = Config::open(path)?;
     let user = config
         .users
         .iter()
         .find(|u| u.name == name)
         .ok_or_else(|| anyhow!("User '{name}' not found."))?;
-
-    let prefix = config.server_net.prefix_len();
-    let endpoint = &config.endpoint;
-    let pub_key = &config.server_pub_key;
-
-    info!(
-        "[Interface]
-Address = {}/{}
-PrivateKey = {}
-DNS = 1.1.1.1
-
-[Peer]
-PublicKey = {}
-Endpoint = {}
-AllowedIPs = {}, 0.0.0.0/0
-PersistentKeepalive = 25
-",
-        user.ip, prefix, user.priv_key, pub_key, endpoint, config.server_net
-    );
+    let mut conf_out = String::new();
+    config.write_client_conf(&mut conf_out, user)?;
+    print!("{}", conf_out);
     Ok(())
 }
 
@@ -209,12 +196,12 @@ fn handle_update(path: &std::path::Path) -> Result<()> {
 }
 
 fn handle_start(path: &std::path::Path) -> Result<()> {
-    let config = Config::load(path)?;
+    let config = Config::open(path)?;
     run_wg_quick("up", &config.wg_interface)
 }
 
 fn handle_stop(path: &std::path::Path) -> Result<()> {
-    let config = Config::load(path)?;
+    let config = Config::open(path)?;
     run_wg_quick("down", &config.wg_interface)
 }
 
@@ -261,79 +248,34 @@ fn run_wg_quick(cmd: &str, interface: &str) -> Result<()> {
 }
 
 fn sync_wireguard(path: &std::path::Path) -> Result<()> {
-    let config = Config::load(path)?;
-
-    let server_net = &config.server_net;
-    let priv_key = &config.server_priv_key;
-    let ext_if = &config.external_interface;
+    let config = Config::open(path)?;
     let wg_if = &config.wg_interface;
 
-    let mut conf = format!(
-        "[Interface]
-Address = {server_net}
-SaveConfig = false
-ListenPort = 51820
-PrivateKey = {priv_key}
-PreUp = sysctl -w net.ipv4.ip_forward=1
-PostUp = iptables -A FORWARD -i {wg_if} -o {wg_if} -j ACCEPT; iptables -t nat -A POSTROUTING -o {ext_if} -j MASQUERADE
-PostDown = iptables -D FORWARD -i {wg_if} -o {wg_if} -j ACCEPT; iptables -t nat -D POSTROUTING -o {ext_if} -j MASQUERADE
-"
-    );
-
-    for u in &config.users {
-        let name = &u.name;
-        let pub_key = &u.pub_key;
-        let ip = &u.ip;
-        write!(
-            conf,
-            "\n[Peer]\n# Name: {name}\nPublicKey = {pub_key}\nAllowedIPs = {ip}/32\n"
-        )
-        .context("Failed to build config string")?;
-    }
-
-    let tmp_path = format!("/tmp/nazuna_{}.conf", wg_if);
-    fs::write(&tmp_path, &conf)
-        .with_context(|| format!("Failed to write temporary config to {tmp_path}"))?;
-    info!("✅ Generated temporary config at {tmp_path}");
+    let mut conf = String::new();
+    config.write_wg_conf(&mut conf, true)?;
 
     let system_conf = format!("/etc/wireguard/{wg_if}.conf");
-    match fs::copy(&tmp_path, &system_conf) {
-        Ok(_) => {
-            // 'wg setconf' does not support 'Address' or 'SaveConfig'.
-            // We must strip them before applying.
-            let wg_only_conf: String = conf
-                .lines()
-                .filter(|line| {
-                    let l = line.trim().to_lowercase();
-                    !l.starts_with("address")
-                        && !l.starts_with("saveconfig")
-                        && !l.starts_with("preup")
-                        && !l.starts_with("postup")
-                        && !l.starts_with("postdown")
-                })
-                .collect::<Vec<_>>()
-                .join("\n");
+    fs::write(&system_conf, &conf)
+        .with_context(|| format!("Failed to write config to {system_conf}. Try sudo."))?;
 
-            let mut child = Command::new("wg")
-                .args(["setconf", wg_if, "/dev/stdin"])
-                .stdin(Stdio::piped())
-                .spawn()
-                .context("Failed to spawn 'wg setconf'")?;
+    let mut wg_only_conf = String::new();
+    config.write_wg_conf(&mut wg_only_conf, false)?;
 
-            let mut stdin = child.stdin.take().expect("Failed to open stdin");
-            stdin.write_all(wg_only_conf.as_bytes())?;
-            drop(stdin);
+    let mut child = Command::new("wg")
+        .args(["setconf", wg_if, "/dev/stdin"])
+        .stdin(Stdio::piped())
+        .spawn()
+        .context("Failed to spawn 'wg setconf'")?;
 
-            let status = child.wait()?;
-            if status.success() {
-                info!("🚀 System WireGuard configuration updated successfully.");
-            } else {
-                error!("⚠️  'wg setconf' failed. If the interface is down, this is normal.");
-            }
-        }
-        Err(e) => {
-            return Err(anyhow!("Failed to copy to {system_conf}: {e}. Try sudo."));
-        }
+    let mut stdin = child.stdin.take().expect("Failed to open stdin");
+    stdin.write_all(wg_only_conf.as_bytes())?;
+    drop(stdin);
+
+    let status = child.wait()?;
+    if status.success() {
+        info!("🚀 System WireGuard configuration updated successfully.");
+    } else {
+        error!("⚠️  'wg setconf' failed. If the interface is down, this is normal.");
     }
     Ok(())
 }
