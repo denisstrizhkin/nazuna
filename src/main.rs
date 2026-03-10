@@ -1,14 +1,15 @@
 #![allow(clippy::missing_errors_doc, clippy::missing_panics_doc)]
+mod config;
+
 use anyhow::{Context, Result, anyhow};
 use clap::{Parser, Subcommand};
+use config::{Config, User};
 use ipnet::Ipv4Net;
 use log::{error, info};
-use serde::{Deserialize, Serialize};
 use std::{
     fmt::Write as _,
     fs,
     io::Write as _,
-    net::Ipv4Addr,
     process::{Command, Stdio},
 };
 
@@ -50,58 +51,6 @@ enum Commands {
     Start,
     /// Stop the WireGuard interface
     Stop,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-struct User {
-    name: String,
-    ip: Ipv4Addr,
-    priv_key: String,
-    pub_key: String,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-struct Config {
-    users: Vec<User>,
-    server_pub_key: String,
-    server_priv_key: String,
-    endpoint: String,
-    server_net: Ipv4Net,
-    external_interface: String,
-    wg_interface: String,
-}
-
-impl Config {
-    fn load(path: &std::path::Path) -> Result<Self> {
-        if !path.exists() {
-            return Err(anyhow!(
-                "❌ Database not found at {}. Please run 'init' first.",
-                path.display()
-            ));
-        }
-        let data = fs::read_to_string(path)
-            .with_context(|| format!("Failed to read database file {}", path.display()))?;
-        serde_json::from_str(&data)
-            .with_context(|| format!("Failed to parse database JSON from {}", path.display()))
-    }
-
-    fn save(&self, path: &std::path::Path) -> Result<()> {
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)
-                .with_context(|| format!("Failed to create directory {}", parent.display()))?;
-        }
-        let data =
-            serde_json::to_string_pretty(self).context("Failed to serialize database to JSON")?;
-        fs::write(path, data)
-            .with_context(|| format!("Failed to write database file to {}", path.display()))
-    }
-
-    fn find_available_ip(&self, net: Ipv4Net) -> Result<Ipv4Addr> {
-        let server_ip = net.addr();
-        net.hosts()
-            .find(|ip| *ip != server_ip && !self.users.iter().any(|u| u.ip == *ip))
-            .ok_or_else(|| anyhow!("No available IP addresses in subnet {net}"))
-    }
 }
 
 fn main() {
