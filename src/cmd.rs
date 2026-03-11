@@ -19,7 +19,10 @@ where
         .spawn()
         .with_context(|| format!("Failed to spawn '{} {}'", bin, args.join(" ")))?;
     if let Some(writer) = stdin_w {
-        let mut stdin = child.stdin.take().unwrap();
+        let mut stdin = child
+            .stdin
+            .take()
+            .expect("stdin is always piped when stdin_w is Some");
         writer(&mut stdin).context("Failed to write to stdin")?;
     }
     let output = child.wait_with_output()?;

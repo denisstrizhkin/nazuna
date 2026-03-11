@@ -62,8 +62,8 @@ fn handle_init(
     if path.exists() {
         println!("⚠️  Database already exists at {}", path.display());
     } else {
-        let priv_key = Wg::genkey()?;
-        let pub_key = Wg::pubkey(&priv_key)?;
+        let priv_key = Wg::genkey().context("Failed to generate private key")?;
+        let pub_key = Wg::pubkey(&priv_key).context("Failed to generate public key")?;
         let config = Config {
             users: vec![],
             server_priv_key: priv_key,
@@ -101,8 +101,8 @@ fn handle_add(path: &std::path::Path, name: &str) -> Result<()> {
         return Err(anyhow!("User '{name}' already exists."));
     }
     let ip = config.find_available_ip(config.server_net)?;
-    let priv_key = Wg::genkey()?;
-    let pub_key = Wg::pubkey(&priv_key)?;
+    let priv_key = Wg::genkey().context("Failed to generate user private key")?;
+    let pub_key = Wg::pubkey(&priv_key).context("Failed to generate user public key")?;
     config.users.push(User {
         name: name.to_string(),
         ip,
@@ -146,12 +146,16 @@ fn handle_update(path: &std::path::Path) -> Result<()> {
 
 fn handle_start(path: &std::path::Path) -> Result<()> {
     let config = Config::open(path)?;
-    cmd::WgQuick::new(&config.wg_interface).up()
+    cmd::WgQuick::new(&config.wg_interface)
+        .up()
+        .context("Failed to start wg-quick interface")
 }
 
 fn handle_stop(path: &std::path::Path) -> Result<()> {
     let config = Config::open(path)?;
-    cmd::WgQuick::new(&config.wg_interface).down()
+    cmd::WgQuick::new(&config.wg_interface)
+        .down()
+        .context("Failed to stop wg-quick interface")
 }
 
 fn sync_wireguard(path: &std::path::Path) -> Result<()> {

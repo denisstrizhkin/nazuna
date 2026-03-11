@@ -23,16 +23,16 @@ Unlike traditional management tools that create a mess of directories and files,
 
 Nazuna is configured through CLI flags **during initialization**. Once initialized, these parameters are stored in the database and are no longer required.
 
-| Flag | Description | Default / Example |
-|------------|-------------|-------------------|
-| `--server-net` | Internal VPN IP and subnet. | `10.50.0.1/24` |
-| `--endpoint-ip` | Public IP for clients. | `1.2.3.4` |
-| `--endpoint-port` | Public port for clients. | `51820` |
-| `--client-dns` | DNS server for clients. | `1.1.1.1` |
-| `--external-interface` | External WAN interface for NAT. | `eth0` |
-| `--wg-interface` | WireGuard interface name. | `wg0` |
-| `-c`, `--config` | Path to the JSON database. | `/etc/nazuna/nazuna.conf` |
-| `RUST_LOG` | Logging level. | `info` |
+| Flag | Environment Variable | Description | Default / Example |
+|------------|-----------------------|-------------|-------------------|
+| `--server-net` | `WG_SERVER_NET` | Internal VPN IP and subnet. | `10.50.0.1/24` |
+| `--endpoint-ip` | `WG_ENDPOINT_IP` | Public IP for clients. | `127.0.0.1` |
+| `--endpoint-port` | `WG_ENDPOINT_PORT` | Public port for clients. | `51820` |
+| `--client-dns` | `WG_CLIENT_DNS` | DNS server for clients. | *None* |
+| `--external-interface` | `WG_EXTERNAL_INTERFACE` | External WAN interface for NAT. | `eth0` |
+| `--wg-interface` | `WG_INTERFACE` | WireGuard interface name. | `wg0` |
+| `-c`, `--config` | *N/A* | Path to the JSON database. | `/etc/nazuna/nazuna.conf` |
+| *N/A* | `RUST_LOG` | Logging level. | `info` |
 
 ## 🛠️ Usage
 

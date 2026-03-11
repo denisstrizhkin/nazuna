@@ -17,17 +17,17 @@ pub struct Cli {
 pub enum Commands {
     /// Initialize the server database and generate keys
     Init {
-        #[arg(long, default_value = "127.0.0.1")]
+        #[arg(long, env = "WG_ENDPOINT_IP", default_value = "127.0.0.1")]
         endpoint_ip: Ipv4Addr,
-        #[arg(long, default_value_t = 51820)]
+        #[arg(long, env = "WG_ENDPOINT_PORT", default_value_t = 51820)]
         endpoint_port: u16,
-        #[arg(long)]
+        #[arg(long, env = "WG_CLIENT_DNS")]
         client_dns: Option<Ipv4Addr>,
-        #[arg(long, default_value = "10.50.0.1/24")]
+        #[arg(long, env = "WG_SERVER_NET", default_value = "10.50.0.1/24")]
         server_net: Ipv4Net,
-        #[arg(long, default_value = "eth0")]
+        #[arg(long, env = "WG_EXTERNAL_INTERFACE", default_value = "eth0")]
         external_interface: String,
-        #[arg(long, default_value = "wg0")]
+        #[arg(long, env = "WG_INTERFACE", default_value = "wg0")]
         wg_interface: String,
     },
     /// List all registered peers
