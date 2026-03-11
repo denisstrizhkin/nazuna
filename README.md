@@ -46,45 +46,102 @@ Nazuna is configured through CLI flags **during initialization**. Once initializ
 
 ### 1. Initialization
 Generate the server's identity and the initial database. Use flags, environment variables, or rely on reasonable defaults.
-```bash
-# Using flags (recommended)
-sudo nazuna init --server-net 10.50.0.1/24 --endpoint-ip 1.2.3.4 --endpoint-port 51820
 
-# Using a custom database path
+**Using flags (recommended):**
+```bash
+sudo nazuna init --server-net 10.50.0.1/24 --endpoint-ip 1.2.3.4 --endpoint-port 51820
+```
+
+**Using a custom database path:**
+```bash
 sudo nazuna -c ./my_vpn.json init
 ```
 
 ### 2. Managing Peers
 Adding a peer is instant. No configuration files are written to disk yet; only the database is updated.
-```bash
-nazuna add "denis-laptop"
-# ✅ User 'denis-laptop' added with IP 10.50.0.2
 
+```bash
+nazuna add denis-mac
+```
+
+**Output:**
+```text
+✅ User 'denis-mac' added with IP 10.50.0.2
+```
+
+To list all registered peers:
+
+```bash
 nazuna list
-# 📋 Registered Peers:
-# Name                 | IP              | Public Key                                  
-# -------------------------------------------------------------------------------------
-# denis-laptop         | 10.50.0.2       | yN9p9KtziHtGkZ2OIrwkfn/zZWBqMu8ObI9LavENBw8=
+```
+
+**Output:**
+```text
+📋 Registered Peers:
+Name                 | IP              | Public Key                                  
+-------------------------------------------------------------------------------------
+denis-mac            | 10.50.0.2       | OvMjcbm+yt7hPXe/ZCWeDiptm3R5v6g+HJq68pYyyGE=
+```
+
+To remove a peer (example):
+
+```bash
+nazuna remove denis-mac
+```
+
+**Output:**
+```text
+🗑️  User 'denis-mac' removed.
 ```
 
 ### 3. Deploying to System
 Synchronize the database state with the actual WireGuard interface (`wg0`).
+
 ```bash
-# This generates server.conf and syncs it to /etc/wireguard/wg0.conf
 sudo nazuna update
+```
+
+**Output:**
+```text
+🚀 System WireGuard configuration updated successfully.
 ```
 
 ### 4. Client Handover
 Retrieve the complete client configuration for a specific user to stdout.
+
 ```bash
-nazuna cat "denis-laptop" > denis.conf
+nazuna cat denis-mac
+```
+
+**Output:**
+```text
+[Interface]
+PrivateKey = AGx8yPyvFEncoQcnr9mjXp8Wl0sID7XhXAMvLOcGZmw=
+Address = 10.50.0.2/32
+[Peer]
+PublicKey = XwdBWpmrAdV+vKhgy7KCkc3Y4l/EFZVDzY6wCNL/OVU=
+Endpoint = 127.0.0.1:51820
+AllowedIPs = 0.0.0.0/0
+PersistentKeepalive = 25
+```
+
+Save it directly to a file:
+
+```bash
+nazuna cat denis-mac > denis-mac.conf
 ```
 
 ### 5. Service Control
 Quick wrappers for interface management.
+
+**Start the interface:**
 ```bash
-sudo nazuna start  # wg-quick up wg0
-sudo nazuna stop   # wg-quick down wg0
+sudo nazuna start
+```
+
+**Stop the interface:**
+```bash
+sudo nazuna stop
 ```
 
 ## 🏗️ Technical Architecture
