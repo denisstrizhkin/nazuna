@@ -87,10 +87,40 @@ fn handle_init(
 fn handle_list(path: &std::path::Path) -> Result<()> {
     let config = Config::open(path)?;
     println!("📋 Registered Peers:");
-    println!("{:<20} | {:<15} | {:<44}", "Name", "IP", "Public Key");
-    println!("{}", "-".repeat(85));
+
+    let name_len = config
+        .users
+        .iter()
+        .map(|u| u.name.chars().count())
+        .max()
+        .unwrap_or(0)
+        .max(20);
+    let ip_len = config
+        .users
+        .iter()
+        .map(|u| u.ip.to_string().chars().count())
+        .max()
+        .unwrap_or(0)
+        .max(15);
+    let pub_key_len = config
+        .users
+        .iter()
+        .map(|u| u.pub_key.chars().count())
+        .max()
+        .unwrap_or(0)
+        .max(44);
+
+    println!(
+        "{0:<1$} | {2:<3$} | {4:<5$}",
+        "Name", name_len, "IP", ip_len, "Public Key", pub_key_len
+    );
+    let total_len = name_len + ip_len + pub_key_len + 6;
+    println!("{}", "-".repeat(total_len));
     for u in &config.users {
-        println!("{:<20} | {:<15} | {:<44}", u.name, u.ip, u.pub_key);
+        println!(
+            "{0:<1$} | {2:<3$} | {4:<5$}",
+            u.name, name_len, u.ip, ip_len, u.pub_key, pub_key_len
+        );
     }
     Ok(())
 }
