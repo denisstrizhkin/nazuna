@@ -11,7 +11,7 @@ use ipnet::Ipv4Net;
 fn main() {
     let cli = cli::parse();
     if let Err(e) = run(cli) {
-        eprintln!("{:?}", e);
+        eprintln!("{e:?}");
         std::process::exit(1);
     }
 }

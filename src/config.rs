@@ -81,7 +81,7 @@ impl Config {
         writeln!(w, "PrivateKey = {}", user.priv_key)?;
         writeln!(w, "Address = {}/32", user.ip)?;
         if let Some(dns) = self.client_dns {
-            writeln!(w, "DNS = {}", dns)?;
+            writeln!(w, "DNS = {dns}")?;
         }
         writeln!(w, "[Peer]")?;
         writeln!(w, "PublicKey = {}", self.server_pub_key)?;

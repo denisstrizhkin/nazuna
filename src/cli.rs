@@ -36,13 +36,13 @@ pub enum Commands {
     Add { name: String },
     /// Remove an existing peer
     Remove { name: String },
-    /// Print the WireGuard client configuration for a specific peer
+    /// Print the `WireGuard` client configuration for a specific peer
     Cat { name: String },
-    /// Sync the database state with the WireGuard interface (generates config)
+    /// Sync the database state with the `WireGuard` interface (generates config)
     Update,
-    /// Start the WireGuard interface
+    /// Start the `WireGuard` interface
     Start,
-    /// Stop the WireGuard interface
+    /// Stop the `WireGuard` interface
     Stop,
 }
 
