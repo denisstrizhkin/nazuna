@@ -2,6 +2,10 @@
 name = "nazuna"
 version = "0.1.0"
 edition = "2024"
+description = "A minimalist, purely data-driven management tool for WireGuard 🩸"
+repository = "https://github.com/denisstrizhkin/nazuna"
+license = "MIT"
+keywords = ["config", "management", "vpn", "wg", "wireguard"]
 
 [dependencies]
 anyhow = "1.0.102"
