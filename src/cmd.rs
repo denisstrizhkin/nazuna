@@ -30,14 +30,15 @@ pub fn pubkey(priv_key: &str) -> Result<String> {
     let mut wg = Command::new("wg")
         .arg("pubkey")
         .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
         .spawn()
         .context("Failed to spawn 'wg pubkey'")?;
-
-    let mut wg_stdin = wg.stdin.take().expect("stdin is always piped");
-    wg_stdin
-        .write_all(priv_key.as_bytes())
-        .context("Failed to write private key to wg pubkey stdin")?;
-
+    match wg.stdin.take() {
+        Some(mut stdin) => stdin
+            .write_all(priv_key.as_bytes())
+            .context("Failed to write private key to wg pubkey stdin")?,
+        None => unreachable!(),
+    }
     let output = wg.wait_with_output();
     parse_output("wg", &["pubkey"], output)
 }
@@ -49,16 +50,15 @@ pub fn sync(interface: &str) -> Result<String> {
         .stdout(Stdio::piped())
         .spawn()
         .with_context(|| format!("Failed to spawn 'wg-quick strip {}'", interface))?;
-
-    let wg_quick_stdout = wg_quick.stdout.take().expect("stdout is always piped");
-
-    let output = Command::new("wg")
-        .arg("syncconf")
-        .arg(interface)
-        .arg("/dev/stdin")
-        .stdin(wg_quick_stdout)
-        .output();
-
+    let output = match wg_quick.stdout.take() {
+        Some(stdout) => Command::new("wg")
+            .arg("syncconf")
+            .arg(interface)
+            .arg("/dev/stdin")
+            .stdin(stdout)
+            .output(),
+        None => unreachable!(),
+    };
     parse_output("wg", &["syncconf", interface, "/dev/stdin"], output)
 }
 
