@@ -19,6 +19,14 @@ Unlike traditional management tools that create a mess of directories and files,
 - **WireGuard Tools**: The `wg` and `wg-quick` binaries must be in your `$PATH`.
 - **Permissions**: System configuration updates (`update`, `start`, `stop`) usually require `sudo`.
 
+## 📦 Installation
+
+To install `nazuna` directly from this repository via Git, run:
+```bash
+cargo install --git https://github.com/denisstrizhkin/nazuna.git
+```
+*Note: Ensure `~/.cargo/bin` is in your `$PATH`.*
+
 ## ⚙️ Configuration (Initial Setup)
 
 Nazuna is configured through CLI flags **during initialization**. Once initialized, these parameters are stored in the database and are no longer required.
@@ -40,19 +48,19 @@ Nazuna is configured through CLI flags **during initialization**. Once initializ
 Generate the server's identity and the initial database. Use flags, environment variables, or rely on reasonable defaults.
 ```bash
 # Using flags (recommended)
-sudo cargo run -- init --server-net 10.50.0.1/24 --endpoint-ip 1.2.3.4 --endpoint-port 51820
+sudo nazuna init --server-net 10.50.0.1/24 --endpoint-ip 1.2.3.4 --endpoint-port 51820
 
 # Using a custom database path
-sudo cargo run -- -c ./my_vpn.json init
+sudo nazuna -c ./my_vpn.json init
 ```
 
 ### 2. Managing Peers
 Adding a peer is instant. No configuration files are written to disk yet; only the database is updated.
 ```bash
-cargo run -- add "denis-laptop"
+nazuna add "denis-laptop"
 # ✅ User 'denis-laptop' added with IP 10.50.0.2
 
-cargo run -- list
+nazuna list
 # 📋 Registered Peers:
 # Name                 | IP              | Public Key                                  
 # -------------------------------------------------------------------------------------
@@ -63,20 +71,20 @@ cargo run -- list
 Synchronize the database state with the actual WireGuard interface (`wg0`).
 ```bash
 # This generates server.conf and syncs it to /etc/wireguard/wg0.conf
-cargo run -- update
+sudo nazuna update
 ```
 
 ### 4. Client Handover
 Retrieve the complete client configuration for a specific user to stdout.
 ```bash
-cargo run -- cat "denis-laptop" > denis.conf
+nazuna cat "denis-laptop" > denis.conf
 ```
 
 ### 5. Service Control
 Quick wrappers for interface management.
 ```bash
-cargo run -- start  # wg-quick up wg0
-cargo run -- stop   # wg-quick down wg0
+sudo nazuna start  # wg-quick up wg0
+sudo nazuna stop   # wg-quick down wg0
 ```
 
 ## 🏗️ Technical Architecture
