@@ -8,10 +8,6 @@ use cli::{Cli, Commands};
 use config::{Config, User};
 use ipnet::Ipv4Net;
 
-use std::io::Write;
-
-use crate::cmd::{Wg, WgQuick};
-
 fn main() {
     let cli = cli::parse();
     if let Err(e) = run(cli) {
@@ -62,8 +58,8 @@ fn handle_init(
     if path.exists() {
         println!("⚠️  Database already exists at {}", path.display());
     } else {
-        let priv_key = Wg::genkey().context("Failed to generate private key")?;
-        let pub_key = Wg::pubkey(&priv_key).context("Failed to generate public key")?;
+        let priv_key = cmd::genkey().context("Failed to generate private key")?;
+        let pub_key = cmd::pubkey(&priv_key).context("Failed to generate public key")?;
         let config = Config {
             users: vec![],
             server_priv_key: priv_key,
@@ -131,8 +127,8 @@ fn handle_add(path: &std::path::Path, name: &str) -> Result<()> {
         return Err(anyhow!("User '{name}' already exists."));
     }
     let ip = config.find_available_ip(config.server_net)?;
-    let priv_key = Wg::genkey().context("Failed to generate user private key")?;
-    let pub_key = Wg::pubkey(&priv_key).context("Failed to generate user public key")?;
+    let priv_key = cmd::genkey().context("Failed to generate user private key")?;
+    let pub_key = cmd::pubkey(&priv_key).context("Failed to generate user public key")?;
     config.users.push(User {
         name: name.to_string(),
         ip,
@@ -176,16 +172,16 @@ fn handle_update(path: &std::path::Path) -> Result<()> {
 
 fn handle_start(path: &std::path::Path) -> Result<()> {
     let config = Config::open(path)?;
-    cmd::WgQuick::new(&config.wg_interface)
-        .up()
+    cmd::up(&config.wg_interface)
         .context("Failed to start wg-quick interface")
+        .map(|_| ())
 }
 
 fn handle_stop(path: &std::path::Path) -> Result<()> {
     let config = Config::open(path)?;
-    cmd::WgQuick::new(&config.wg_interface)
-        .down()
+    cmd::down(&config.wg_interface)
         .context("Failed to stop wg-quick interface")
+        .map(|_| ())
 }
 
 fn sync_wireguard(path: &std::path::Path) -> Result<()> {
@@ -196,15 +192,11 @@ fn sync_wireguard(path: &std::path::Path) -> Result<()> {
     config
         .write_wg_conf(&mut file)
         .context("Failed to write WireGuard server config to disk")?;
-    let wg_if = &config.wg_interface;
-    let wg_config = WgQuick::new(wg_if)
-        .strip()
-        .context("Failed to strip WireGuard config for runtime update")?;
-    match Wg::new(wg_if).setconf(|stdin| stdin.write_all(wg_config.as_bytes())) {
+    match cmd::sync(&config.wg_interface) {
         Ok(_) => println!("🚀 System WireGuard configuration updated successfully."),
         Err(e) => {
             eprintln!(
-                "⚠️  'wg setconf' failed. If the interface is down, this is normal. Error: {e}"
+                "⚠️  'wg syncconf' failed. If the interface is down, this is normal. Error: {e}"
             );
         }
     }
