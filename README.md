@@ -99,7 +99,6 @@ sudo systemctl start nazuna
 ```bash
 sudo systemctl enable nazuna
 ```
-```
 
 ## License
 
