@@ -55,6 +55,7 @@ nazuna list          # Show all users and their IPs
 nazuna remove alice  # Delete a user
 sudo nazuna start    # Bring up the WireGuard interface
 sudo nazuna stop     # Bring it down
+```
 
 ## OpenRC Service (Gentoo/Alpine)
 
