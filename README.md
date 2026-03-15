@@ -55,6 +55,50 @@ nazuna list          # Show all users and their IPs
 nazuna remove alice  # Delete a user
 sudo nazuna start    # Bring up the WireGuard interface
 sudo nazuna stop     # Bring it down
+
+## OpenRC Service (Gentoo/Alpine)
+
+Nazuna includes an OpenRC init script to manage your VPN as a background service.
+
+1. Copy the init script:
+```bash
+sudo cp openrc/nazuna /etc/init.d/nazuna
+```
+
+2. Start the service:
+```bash
+sudo rc-service nazuna start
+```
+
+3. Enable on boot:
+```bash
+sudo rc-update add nazuna default
+```
+
+## Systemd Service (Debian/Ubuntu/Arch)
+
+Nazuna includes a systemd service file to manage your VPN as a background service.
+
+1. Ensure `nazuna` is accessible in your system path (e.g. symlink to `/usr/local/bin`):
+```bash
+sudo ln -s ~/.cargo/bin/nazuna /usr/local/bin/nazuna
+```
+
+2. Copy the service file:
+```bash
+sudo cp systemd/nazuna.service /etc/systemd/system/
+```
+
+3. Reload systemd and start the service:
+```bash
+sudo systemctl daemon-reload
+sudo systemctl start nazuna
+```
+
+4. Enable on boot:
+```bash
+sudo systemctl enable nazuna
+```
 ```
 
 ## License

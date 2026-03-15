@@ -1,0 +1,21 @@
+#!/sbin/openrc-run
+
+name="Nazuna"
+description="WireGuard via Nazuna"
+
+depend() {
+	need net
+	use dns
+}
+
+start() {
+	ebegin "Starting $name"
+	nazuna start
+	eend $? "Failed to start $name"
+}
+
+stop() {
+	ebegin "Stopping $name"
+	nazuna stop
+	eend $? "Failed to stop $name"
+}

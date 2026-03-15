@@ -1,0 +1,16 @@
+[Unit]
+Description=WireGuard via Nazuna
+After=network-online.target nss-lookup.target
+Wants=network-online.target nss-lookup.target
+Documentation=https://github.com/denisstrizhkin/nazuna
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/nazuna start
+ExecStop=/usr/local/bin/nazuna stop
+ExecReload=/usr/local/bin/nazuna update
+Environment=WG_ENDPOINT_RESOLUTION_RETRIES=infinity
+
+[Install]
+WantedBy=multi-user.target
