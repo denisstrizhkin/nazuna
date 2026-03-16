@@ -3,7 +3,7 @@ mod cli;
 mod cmd;
 mod config;
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result};
 use cli::{Cli, Commands};
 use config::{Config, User};
 use ipnet::Ipv4Net;
@@ -16,18 +16,132 @@ fn main() {
     }
 }
 
+struct Nazuna<'a> {
+    config: Config,
+    config_path: &'a std::path::Path,
+}
+
+impl Nazuna<'_> {
+    fn save_config(&self) -> Result<()> {
+        self.config.save(self.config_path)
+    }
+
+    fn user_display_column_width<F>(&self, selector: F, min_width: usize) -> usize
+    where
+        F: Fn(&User) -> usize,
+    {
+        self.config
+            .get_users()
+            .iter()
+            .map(selector)
+            .max()
+            .unwrap_or_default()
+            .max(min_width)
+    }
+
+    fn handle_list(&self) {
+        println!("📋 Registered Peers:");
+        let name_len = self.user_display_column_width(|u| u.name.chars().count(), 20);
+        let ip_len = self.user_display_column_width(|u| u.ip.to_string().chars().count(), 15);
+        let pub_key_len = self.user_display_column_width(|u| u.pub_key.chars().count(), 44);
+        println!(
+            "{name:<name_len$} | {ip:<ip_len$} | {pub_key:<pub_key_len$}",
+            name = "Name",
+            ip = "IP",
+            pub_key = "Public Key"
+        );
+        let total_len = name_len + ip_len + pub_key_len + 6;
+        println!("{}", "-".repeat(total_len));
+        for u in self.config.get_users() {
+            println!(
+                "{name:<name_len$} | {ip:<ip_len$} | {pub_key:<pub_key_len$}",
+                name = u.name,
+                ip = u.ip,
+                pub_key = u.pub_key
+            );
+        }
+    }
+
+    fn handle_add(&mut self, name: &str) -> Result<()> {
+        self.config
+            .find_user(name)
+            .with_context(|| format!("User '{name}' already exists."))?;
+        let user = self.config.add_user(name.to_string())?;
+        self.save_config()?;
+        println!("✅ User '{name}' added with IP {ip}", ip = user.ip);
+        Ok(())
+    }
+
+    fn handle_remove(&mut self, name: &str) -> Result<()> {
+        match self.config.remove_user(name) {
+            Some(_) => {
+                self.save_config()?;
+                println!("🗑️  User '{name}' removed.");
+            }
+            None => println!("⚠️  User '{name}' not found."),
+        }
+        Ok(())
+    }
+
+    fn handle_cat(&self, name: &str) -> Result<()> {
+        let user = self
+            .config
+            .find_user(name)
+            .with_context(|| format!("User '{name}' not found."))?;
+        self.config
+            .write_client_conf(&mut std::io::stdout(), user)
+            .context("Failed to write client config to stdout")?;
+        Ok(())
+    }
+
+    fn handle_update(&self) -> Result<()> {
+        self.sync_wireguard()
+    }
+
+    fn handle_start(&self) -> Result<()> {
+        self.sync_wireguard()?;
+        cmd::up(self.config.get_wg_interface())
+            .context("Failed to start wg-quick interface")
+            .map(|_| ())
+    }
+
+    fn handle_stop(&self) -> Result<()> {
+        cmd::down(self.config.get_wg_interface())
+            .context("Failed to stop wg-quick interface")
+            .map(|_| ())
+    }
+
+    fn sync_wireguard(&self) -> Result<()> {
+        let system_conf = format!("/etc/wireguard/{}.conf", self.config.get_wg_interface());
+        let mut file = std::fs::File::create(&system_conf)
+            .with_context(|| format!("Failed to create config at {system_conf}. Try sudo."))?;
+        self.config
+            .write_wg_conf(&mut file)
+            .context("Failed to write WireGuard server config to disk")?;
+        match cmd::sync(self.config.get_wg_interface()) {
+            Ok(_) => println!("🚀 System WireGuard configuration updated successfully."),
+            Err(e) => {
+                eprintln!(
+                    "⚠️  'wg syncconf' failed. If the interface is down, this is normal. Error: {e}"
+                );
+            }
+        }
+        Ok(())
+    }
+}
+
 fn run(cli: Cli) -> Result<()> {
     let config_path = &cli.config;
-
-    match cli.command {
-        Commands::Init {
-            endpoint_ip,
-            endpoint_port,
-            client_dns,
-            server_net,
-            external_interface,
-            wg_interface,
-        } => handle_init(
+    if let Commands::Init {
+        endpoint_ip,
+        endpoint_port,
+        client_dns,
+        server_net,
+        external_interface,
+        wg_interface,
+    } = cli.command
+    {
+        return handle_init(
             config_path,
             endpoint_ip,
             endpoint_port,
@@ -35,14 +149,25 @@ fn run(cli: Cli) -> Result<()> {
             server_net,
             external_interface,
             wg_interface,
-        ),
-        Commands::List => handle_list(config_path),
-        Commands::Add { name } => handle_add(config_path, &name),
-        Commands::Remove { name } => handle_remove(config_path, &name),
-        Commands::Cat { name } => handle_cat(config_path, &name),
-        Commands::Update => handle_update(config_path),
-        Commands::Start => handle_start(config_path),
-        Commands::Stop => handle_stop(config_path),
+        );
+    }
+    let config = Config::open(config_path)?;
+    let mut nazuna = Nazuna {
+        config,
+        config_path,
+    };
+    match cli.command {
+        Commands::List => {
+            nazuna.handle_list();
+            Ok(())
+        }
+        Commands::Add { name } => nazuna.handle_add(&name),
+        Commands::Remove { name } => nazuna.handle_remove(&name),
+        Commands::Cat { name } => nazuna.handle_cat(&name),
+        Commands::Update => nazuna.handle_update(),
+        Commands::Start => nazuna.handle_start(),
+        Commands::Stop => nazuna.handle_stop(),
+        Commands::Init { .. } => Ok(()),
     }
 }
 
@@ -57,148 +182,20 @@ fn handle_init(
 ) -> Result<()> {
     if path.exists() {
         println!("⚠️  Database already exists at {}", path.display());
-    } else {
-        let priv_key = cmd::genkey().context("Failed to generate private key")?;
-        let pub_key = cmd::pubkey(&priv_key).context("Failed to generate public key")?;
-        let config = Config {
-            users: vec![],
-            server_priv_key: priv_key,
-            server_pub_key: pub_key,
-            endpoint_ip,
-            endpoint_port,
-            client_dns,
-            server_net,
-            external_interface,
-            wg_interface,
-        };
-        config.save(path)?;
-        println!(
-            "✅ Initialized database at {} with defaults or environment parameters.",
-            path.display()
-        );
+        return Ok(());
     }
-    Ok(())
-}
-
-fn handle_list(path: &std::path::Path) -> Result<()> {
-    let config = Config::open(path)?;
-    println!("📋 Registered Peers:");
-
-    let name_len = config
-        .users
-        .iter()
-        .map(|u| u.name.chars().count())
-        .max()
-        .unwrap_or(0)
-        .max(20);
-    let ip_len = config
-        .users
-        .iter()
-        .map(|u| u.ip.to_string().chars().count())
-        .max()
-        .unwrap_or(0)
-        .max(15);
-    let pub_key_len = config
-        .users
-        .iter()
-        .map(|u| u.pub_key.chars().count())
-        .max()
-        .unwrap_or(0)
-        .max(44);
-
-    println!(
-        "{0:<1$} | {2:<3$} | {4:<5$}",
-        "Name", name_len, "IP", ip_len, "Public Key", pub_key_len
-    );
-    let total_len = name_len + ip_len + pub_key_len + 6;
-    println!("{}", "-".repeat(total_len));
-    for u in &config.users {
-        println!(
-            "{0:<1$} | {2:<3$} | {4:<5$}",
-            u.name, name_len, u.ip, ip_len, u.pub_key, pub_key_len
-        );
-    }
-    Ok(())
-}
-
-fn handle_add(path: &std::path::Path, name: &str) -> Result<()> {
-    let mut config = Config::open(path)?;
-    if config.users.iter().any(|u| u.name == name) {
-        return Err(anyhow!("User '{name}' already exists."));
-    }
-    let ip = config.find_available_ip(config.server_net)?;
-    let priv_key = cmd::genkey().context("Failed to generate user private key")?;
-    let pub_key = cmd::pubkey(&priv_key).context("Failed to generate user public key")?;
-    config.users.push(User {
-        name: name.to_string(),
-        ip,
-        priv_key,
-        pub_key,
-    });
+    let config = Config::try_new(
+        endpoint_ip,
+        endpoint_port,
+        client_dns,
+        server_net,
+        external_interface,
+        wg_interface,
+    )?;
     config.save(path)?;
-    println!("✅ User '{name}' added with IP {ip}");
-    Ok(())
-}
-
-fn handle_remove(path: &std::path::Path, name: &str) -> Result<()> {
-    let mut config = Config::open(path)?;
-    let initial_len = config.users.len();
-    config.users.retain(|u| u.name != name);
-    if config.users.len() < initial_len {
-        config.save(path)?;
-        println!("🗑️  User '{name}' removed.");
-    } else {
-        println!("⚠️  User '{name}' not found.");
-    }
-    Ok(())
-}
-
-fn handle_cat(path: &std::path::Path, name: &str) -> Result<()> {
-    let config = Config::open(path)?;
-    let user = config
-        .users
-        .iter()
-        .find(|u| u.name == name)
-        .ok_or_else(|| anyhow!("User '{name}' not found."))?;
-    config
-        .write_client_conf(&mut std::io::stdout(), user)
-        .context("Failed to write client config to stdout")?;
-    Ok(())
-}
-
-fn handle_update(path: &std::path::Path) -> Result<()> {
-    sync_wireguard(path)
-}
-
-fn handle_start(path: &std::path::Path) -> Result<()> {
-    let config = Config::open(path)?;
-    cmd::up(&config.wg_interface)
-        .context("Failed to start wg-quick interface")
-        .map(|_| ())
-}
-
-fn handle_stop(path: &std::path::Path) -> Result<()> {
-    let config = Config::open(path)?;
-    cmd::down(&config.wg_interface)
-        .context("Failed to stop wg-quick interface")
-        .map(|_| ())
-}
-
-fn sync_wireguard(path: &std::path::Path) -> Result<()> {
-    let config = Config::open(path)?;
-    let system_conf = format!("/etc/wireguard/{}.conf", config.wg_interface);
-    let mut file = std::fs::File::create(&system_conf)
-        .with_context(|| format!("Failed to create config at {system_conf}. Try sudo."))?;
-    config
-        .write_wg_conf(&mut file)
-        .context("Failed to write WireGuard server config to disk")?;
-    match cmd::sync(&config.wg_interface) {
-        Ok(_) => println!("🚀 System WireGuard configuration updated successfully."),
-        Err(e) => {
-            eprintln!(
-                "⚠️  'wg syncconf' failed. If the interface is down, this is normal. Error: {e}"
-            );
-        }
-    }
+    println!(
+        "✅ Initialized database at {} with defaults or environment parameters.",
+        path.display()
+    );
     Ok(())
 }
