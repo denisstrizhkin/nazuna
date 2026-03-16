@@ -1,14 +1,15 @@
 # Nazuna 🩸
 
-Nazuna is a WireGuard VPN management tool for **Linux server administrators**. Its job is simple: you run one command, and a new VPN user is created and ready to connect — no manual config editing required.
+**The no-nonsense WireGuard VPN manager.**
 
-## Who is this for?
+Stop wrestling with config files, manual IP allocation, and key rotation. Nazuna automates the tedious parts of running a WireGuard server so you can focus on what matters.
 
-Server admins who run a WireGuard VPN and want to manage users without touching config files manually. If you've ever copy-pasted keys and IP addresses by hand, Nazuna does all of that for you.
+## Why Nazuna?
 
-## How it works
-
-Nazuna keeps your entire user list in a single JSON file. When you add a user, it automatically assigns them an IP, generates their keys, and produces a ready-to-send client config — all in seconds.
+- **Zero Config Headaches:** Add users with a single command. Keys and IPs are auto-generated.
+- **JSON-Backed:** Your entire state lives in one readable JSON file. No heavy databases to manage.
+- **Portable:** Single binary. Easy to backup, easy to move.
+- **Instant Client Configs:** Generate QR-ready configs instantly.
 
 ## Installation
 

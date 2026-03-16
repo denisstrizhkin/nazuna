@@ -3,7 +3,7 @@ use ipnet::Ipv4Net;
 use std::{net::Ipv4Addr, path::PathBuf};
 
 #[derive(Parser)]
-#[command(name = "nazuna", version, about = "A minimalist, purely data-driven management tool for WireGuard 🩸", long_about = None)]
+#[command(name = "nazuna", version, about = "The no-nonsense WireGuard VPN manager. Minimalist, JSON-backed, and instantly ready. 🩸", long_about = None)]
 pub struct Cli {
     /// Path to the database file
     #[arg(short, long, default_value = "/etc/nazuna/nazuna.conf")]
