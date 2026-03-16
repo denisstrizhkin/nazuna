@@ -186,7 +186,7 @@ mod tests {
     fn create_test_config() -> Config {
         let server_net: Ipv4Net = "10.0.0.1/24".parse().unwrap();
         Config::try_new(
-            Ipv4Addr::new(127, 0, 0, 1),
+            Ipv4Addr::LOCALHOST,
             51820,
             Some(Ipv4Addr::new(8, 8, 8, 8)),
             server_net,
