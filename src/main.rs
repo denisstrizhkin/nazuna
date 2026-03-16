@@ -5,6 +5,7 @@ mod config;
 
 use anyhow::{Context, Result};
 use cli::{Cli, Commands};
+use cmd::{KeyGenerator, WgKeyGenerator};
 use config::{Config, User};
 use ipnet::Ipv4Net;
 
@@ -16,12 +17,13 @@ fn main() {
     }
 }
 
-struct Nazuna<'a> {
+struct Nazuna<'a, T: KeyGenerator> {
+    key_gen: T,
     config: Config,
     config_path: &'a std::path::Path,
 }
 
-impl Nazuna<'_> {
+impl<T: KeyGenerator> Nazuna<'_, T> {
     fn save_config(&self) -> Result<()> {
         self.config.save(self.config_path)
     }
@@ -66,7 +68,7 @@ impl Nazuna<'_> {
         self.config
             .find_user(name)
             .with_context(|| format!("User '{name}' already exists."))?;
-        let user = self.config.add_user(name.to_string())?;
+        let user = self.config.add_user(name.to_string(), &self.key_gen)?;
         self.save_config()?;
         println!("✅ User '{name}' added with IP {ip}", ip = user.ip);
         Ok(())
@@ -132,6 +134,7 @@ impl Nazuna<'_> {
 
 fn run(cli: Cli) -> Result<()> {
     let config_path = &cli.config;
+    let key_gen = WgKeyGenerator;
     if let Commands::Init {
         endpoint_ip,
         endpoint_port,
@@ -149,10 +152,12 @@ fn run(cli: Cli) -> Result<()> {
             server_net,
             external_interface,
             wg_interface,
+            &key_gen,
         );
     }
     let config = Config::open(config_path)?;
     let mut nazuna = Nazuna {
+        key_gen,
         config,
         config_path,
     };
@@ -171,7 +176,8 @@ fn run(cli: Cli) -> Result<()> {
     }
 }
 
-fn handle_init(
+#[allow(clippy::too_many_arguments)]
+fn handle_init<G: KeyGenerator>(
     path: &std::path::Path,
     endpoint_ip: std::net::Ipv4Addr,
     endpoint_port: u16,
@@ -179,6 +185,7 @@ fn handle_init(
     server_net: Ipv4Net,
     external_interface: String,
     wg_interface: String,
+    key_gen: &G,
 ) -> Result<()> {
     if path.exists() {
         println!("⚠️  Database already exists at {}", path.display());
@@ -191,6 +198,7 @@ fn handle_init(
         server_net,
         external_interface,
         wg_interface,
+        key_gen,
     )?;
     config.save(path)?;
     println!(

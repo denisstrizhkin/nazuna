@@ -7,7 +7,7 @@ use std::{
     path::Path,
 };
 
-use crate::cmd;
+use crate::cmd::KeyGenerator;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct User {
@@ -31,16 +31,21 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn try_new(
+    pub fn try_new<G: KeyGenerator>(
         endpoint_ip: Ipv4Addr,
         endpoint_port: u16,
         client_dns: Option<Ipv4Addr>,
         server_net: Ipv4Net,
         external_interface: String,
         wg_interface: String,
+        key_gen: &G,
     ) -> Result<Self> {
-        let priv_key = cmd::genkey().context("Failed to generate private key")?;
-        let pub_key = cmd::pubkey(&priv_key).context("Failed to generate public key")?;
+        let priv_key = key_gen
+            .gen_key()
+            .context("Failed to generate private key")?;
+        let pub_key = key_gen
+            .pub_key(&priv_key)
+            .context("Failed to generate public key")?;
         Ok(Self {
             users: vec![],
             server_priv_key: priv_key,
@@ -76,12 +81,16 @@ impl Config {
         &self.users
     }
 
-    pub fn add_user(&mut self, name: String) -> Result<User> {
+    pub fn add_user<G: KeyGenerator>(&mut self, name: String, key_gen: &G) -> Result<User> {
         let ip = self
             .find_available_ip()
             .with_context(|| format!("No available IP addresses in subnet {}", self.server_net))?;
-        let priv_key = cmd::genkey().context("Failed to generate user private key")?;
-        let pub_key = cmd::pubkey(&priv_key).context("Failed to generate user public key")?;
+        let priv_key = key_gen
+            .gen_key()
+            .context("Failed to generate user private key")?;
+        let pub_key = key_gen
+            .pub_key(&priv_key)
+            .context("Failed to generate user public key")?;
         let user = User {
             name,
             ip,
@@ -153,5 +162,119 @@ impl Config {
         writeln!(w, "Endpoint = {}:{}", self.endpoint_ip, self.endpoint_port)?;
         writeln!(w, "AllowedIPs = 0.0.0.0/0")?;
         writeln!(w, "PersistentKeepalive = 25")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cmd::KeyGenerator;
+    use std::str::FromStr;
+
+    struct MockKeyGenerator;
+
+    impl KeyGenerator for MockKeyGenerator {
+        fn gen_key(&self) -> Result<String> {
+            Ok("MOCK_PRIVATE_KEY".to_string())
+        }
+
+        fn pub_key(&self, _priv_key: &str) -> Result<String> {
+            Ok("MOCK_PUBLIC_KEY".to_string())
+        }
+    }
+
+    fn create_test_config() -> Config {
+        let server_net: Ipv4Net = "10.0.0.1/24".parse().unwrap();
+        Config::try_new(
+            Ipv4Addr::new(127, 0, 0, 1),
+            51820,
+            Some(Ipv4Addr::new(8, 8, 8, 8)),
+            server_net,
+            "eth0".to_string(),
+            "wg0".to_string(),
+            &MockKeyGenerator,
+        )
+        .expect("Failed to create config")
+    }
+
+    #[test]
+    fn test_config_initialization() {
+        let config = create_test_config();
+        assert_eq!(config.users.len(), 0);
+        assert_eq!(config.server_priv_key, "MOCK_PRIVATE_KEY");
+        assert_eq!(config.server_pub_key, "MOCK_PUBLIC_KEY");
+        assert_eq!(config.wg_interface, "wg0");
+    }
+
+    #[test]
+    fn test_add_user() {
+        let mut config = create_test_config();
+        let user = config
+            .add_user("test_user".to_string(), &MockKeyGenerator)
+            .expect("Failed to add user");
+
+        assert_eq!(user.name, "test_user");
+        assert_eq!(user.priv_key, "MOCK_PRIVATE_KEY");
+        assert_eq!(user.pub_key, "MOCK_PUBLIC_KEY");
+        // First available IP after 10.0.0.1 (server) should be 10.0.0.2
+        assert_eq!(user.ip, Ipv4Addr::from_str("10.0.0.2").unwrap());
+
+        assert_eq!(config.users.len(), 1);
+    }
+
+    #[test]
+    fn test_add_multiple_users() {
+        let mut config = create_test_config();
+        let user1 = config
+            .add_user("user1".to_string(), &MockKeyGenerator)
+            .unwrap();
+        let user2 = config
+            .add_user("user2".to_string(), &MockKeyGenerator)
+            .unwrap();
+
+        assert_eq!(user1.ip, Ipv4Addr::from_str("10.0.0.2").unwrap());
+        assert_eq!(user2.ip, Ipv4Addr::from_str("10.0.0.3").unwrap());
+        assert_eq!(config.users.len(), 2);
+    }
+
+    #[test]
+    fn test_remove_user() {
+        let mut config = create_test_config();
+        config
+            .add_user("user1".to_string(), &MockKeyGenerator)
+            .unwrap();
+        config
+            .add_user("user2".to_string(), &MockKeyGenerator)
+            .unwrap();
+
+        let removed = config.remove_user("user1");
+        assert!(removed.is_some());
+        assert_eq!(removed.unwrap().name, "user1");
+        assert_eq!(config.users.len(), 1);
+        assert_eq!(config.users[0].name, "user2");
+
+        let removed_again = config.remove_user("user1");
+        assert!(removed_again.is_none());
+    }
+
+    #[test]
+    fn test_ip_reuse() {
+        let mut config = create_test_config();
+        config
+            .add_user("user1".to_string(), &MockKeyGenerator)
+            .unwrap();
+        let _user2 = config
+            .add_user("user2".to_string(), &MockKeyGenerator)
+            .unwrap(); // 10.0.0.3
+
+        config.remove_user("user1"); // frees 10.0.0.2
+
+        let user3 = config
+            .add_user("user3".to_string(), &MockKeyGenerator)
+            .unwrap();
+        // user3 should get 10.0.0.2 because it's the first available
+        // Note: find_available_ip implementation iterates hosts, so it finds the first free one.
+        assert_eq!(user3.ip, Ipv4Addr::from_str("10.0.0.2").unwrap());
+        assert_eq!(config.users.len(), 2);
     }
 }

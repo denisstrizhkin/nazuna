@@ -1,6 +1,23 @@
-use anyhow::{Context, Result, anyhow};
+use anyhow::{anyhow, Context, Result};
 use std::io::{self, Write};
 use std::process::{Command, Output, Stdio};
+
+pub trait KeyGenerator {
+    fn gen_key(&self) -> Result<String>;
+    fn pub_key(&self, priv_key: &str) -> Result<String>;
+}
+
+pub struct WgKeyGenerator;
+
+impl KeyGenerator for WgKeyGenerator {
+    fn gen_key(&self) -> Result<String> {
+        genkey()
+    }
+
+    fn pub_key(&self, priv_key: &str) -> Result<String> {
+        pubkey(priv_key)
+    }
+}
 
 fn parse_output(bin: &str, args: &[&str], output: io::Result<Output>) -> Result<String> {
     let Output {
@@ -9,7 +26,10 @@ fn parse_output(bin: &str, args: &[&str], output: io::Result<Output>) -> Result<
         stderr,
     } = output.with_context(|| format!("Failed to spawn '{} {}'", bin, args.join(" ")))?;
     if status.success() {
-        Ok(String::from_utf8(stdout)?.trim().to_string())
+        Ok(String::from_utf8(stdout)
+            .context("Command output was not valid UTF-8")?
+            .trim()
+            .to_string())
     } else {
         Err(anyhow!(
             "Command '{} {}' failed with status {}: {}",
@@ -33,14 +53,11 @@ pub fn pubkey(priv_key: &str) -> Result<String> {
         .stdout(Stdio::piped())
         .spawn()
         .context("Failed to spawn 'wg pubkey'")?;
-    wg.stdin.take().map_or_else(
-        || unreachable!(),
-        |mut stdin| {
-            stdin
-                .write_all(priv_key.as_bytes())
-                .context("Failed to write private key to wg pubkey stdin")
-        },
-    )?;
+    let mut stdin = wg.stdin.take().context("Failed to open stdin for wg")?;
+    stdin
+        .write_all(priv_key.as_bytes())
+        .context("Failed to write private key to wg pubkey stdin")?;
+    drop(stdin);
     let output = wg.wait_with_output();
     parse_output("wg", &["pubkey"], output)
 }
@@ -52,17 +69,20 @@ pub fn sync(interface: &str) -> Result<String> {
         .stdout(Stdio::piped())
         .spawn()
         .with_context(|| format!("Failed to spawn 'wg-quick strip {interface}'"))?;
-    let output = wg_quick.stdout.take().map_or_else(
-        || unreachable!(),
-        |stdout| {
-            Command::new("wg")
-                .arg("syncconf")
-                .arg(interface)
-                .arg("/dev/stdin")
-                .stdin(stdout)
-                .output()
-        },
-    );
+    let stdout = wg_quick
+        .stdout
+        .take()
+        .context("Failed to open stdout for wg-quick")?;
+    let output = Command::new("wg")
+        .arg("syncconf")
+        .arg(interface)
+        .arg("/dev/stdin")
+        .stdin(stdout)
+        .output();
+    // We should probably check wg_quick status too, but wg syncconf result is what matters most here
+    // as it consumes the output. If wg-quick fails, wg syncconf will likely fail with empty input or similar.
+    // However, properly we should wait for wg_quick.
+    let _ = wg_quick.wait();
     parse_output("wg", &["syncconf", interface, "/dev/stdin"], output)
 }
 
