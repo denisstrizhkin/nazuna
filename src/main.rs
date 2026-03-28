@@ -1,4 +1,14 @@
-#![allow(clippy::missing_errors_doc, clippy::missing_panics_doc)]
+#![deny(
+    clippy::all,
+    clippy::correctness,
+    clippy::suspicious,
+    clippy::complexity,
+    clippy::perf,
+    clippy::style,
+    clippy::pedantic,
+    clippy::cargo
+)]
+
 mod cli;
 mod cmd;
 mod config;
