@@ -1,6 +1,6 @@
-pipeline:
+steps:
   check-and-fmt:
-    image: rust:alpine-latest
+    image: rust:alpine
     commands:
       - rustup component add clippy rustfmt
       - cargo fmt --all -- --check
@@ -8,7 +8,7 @@ pipeline:
       - cargo clippy --all-targets --all-features -- -D warnings -W clippy::pedantic -W clippy::nursery
 
   test:
-    image: rust:alpine-latest
+    image: rust:alpine
     commands:
       - cargo test --all-targets --all-features
 
