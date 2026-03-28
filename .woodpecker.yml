@@ -1,21 +1,17 @@
-kind: pipeline
-type: docker
-name: rust-ci
-
-steps:
-  - name: check-and-fmt
-    image: rust:latest
+pipeline:
+  check-and-fmt:
+    image: rust:alpine-latest
     commands:
       - rustup component add clippy rustfmt
       - cargo fmt --all -- --check
       - cargo check --all-targets --all-features
       - cargo clippy --all-targets --all-features -- -D warnings -W clippy::pedantic -W clippy::nursery
 
-  - name: test
-    image: rust:latest
+  test:
+    image: rust:alpine-latest
     commands:
       - cargo test --all-targets --all-features
 
 when:
-  - event: [push, pull_request]
-    branch: [main, master]
+  - event: [push, pull_request, manual]
+    branch: [main]
